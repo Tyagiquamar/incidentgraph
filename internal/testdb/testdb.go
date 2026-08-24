@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -17,6 +18,10 @@ import (
 	"github.com/incidentgraph/incidentgraph/internal/model"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// dbNames tracks the per-test database name so helpers (e.g. restricted-role
+// DSNs) resolve against the SAME isolated database the test created.
+var dbNames sync.Map // *testing.T -> string
 
 // Open creates a uniquely named database (migrations applied) and registers
 // cleanup that drops it when the test finishes.
@@ -40,6 +45,7 @@ func Open(t *testing.T) *pgxpool.Pool {
 	defer admin.Close()
 
 	name := "ig_test_" + strings.ReplaceAll(strings.ToLower(model.New()[:12]), "-", "")
+	dbNames.Store(t, name)
 	if _, err := admin.Exec(ctx, fmt.Sprintf(`CREATE DATABASE %s`, name)); err != nil {
 		t.Fatalf("create test database: %v", err)
 	}
@@ -88,15 +94,26 @@ func withDBName(raw, name string) (string, error) {
 	return u.String(), nil
 }
 
-// DSNForRole builds a DSN for the given role on the same test database, so
-// tests can exercise restricted-privilege connections.
+// DSNForRole builds a DSN for the given role on the CURRENT test database
+// (the one this t created via Open), so restricted-role tests exercise the
+// exact schema under test.
 func DSNForRole(t *testing.T, user, password string) string {
 	t.Helper()
 	base := os.Getenv("IG_TEST_DATABASE_URL")
 	if base == "" {
 		t.Skip("IG_TEST_DATABASE_URL not set; skipping integration test")
 	}
-	return withUserPassword(base, user, password)
+	nameAny, ok := dbNames.Load(t)
+	if !ok {
+		t.Fatal("DSNForRole called without a matching testdb.Open(t) in this test")
+	}
+	u, err := url.Parse(base)
+	if err != nil {
+		t.Fatalf("parse base url: %v", err)
+	}
+	u.Path = "/" + nameAny.(string)
+	u.User = url.UserPassword(user, password)
+	return u.String()
 }
 
 func withUserPassword(raw, user, password string) string {
