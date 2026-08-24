@@ -1,0 +1,3 @@
+2026-08-23T07:31:00Z inventory ERROR dial tcp: lookup db-primary.internal: NXDOMAIN resolution failed
+2026-08-23T07:33:00Z inventory WARN resolver still serving stale record for db-primary.internal (old TTL 86400)
+2026-08-23T07:58:00Z inventory INFO dns cache flushed; connection errors stopped

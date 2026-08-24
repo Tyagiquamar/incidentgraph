@@ -1,0 +1,3 @@
+2026-08-23T06:10:00Z orders ERROR pg_wal volume 96% full; checkpoints throttling writes
+2026-08-23T06:12:00Z orders WARN archiver lagged 14GB after network interruption to archive target (wal accumulation)
+2026-08-23T06:39:00Z orders ERROR disk saturation on wal partition; commits stalled

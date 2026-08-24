@@ -1,0 +1,3 @@
+2026-08-23T03:14:00Z orders WARN ACCESS EXCLUSIVE lock held by migration for 240s; queries queued behind lock
+2026-08-23T03:16:00Z orders ERROR lock wait cascade: 800 sessions waiting on OrdersIdxBuild
+2026-08-23T03:59:00Z orders INFO migration killed; long-running index build moved out of transaction

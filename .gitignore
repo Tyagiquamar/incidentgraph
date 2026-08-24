@@ -23,6 +23,8 @@ next-env.d.ts
 /pgdata/
 /data/
 *.log
+# Synthetic incident-corpus logs are DATA, not runtime logs.
+!/datasets/**/*.log
 
 # OS / editor
 .DS_Store

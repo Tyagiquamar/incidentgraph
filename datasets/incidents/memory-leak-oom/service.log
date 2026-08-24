@@ -1,0 +1,3 @@
+2026-08-23T02:57:00Z inventory ERROR OOMKilled: memory limit exceeded (rss 1019MiB / limit 1GiB)
+2026-08-23T02:57:01Z inventory WARN heap profile shows growing cache without eviction since latest release
+2026-08-23T14:00:00Z inventory INFO leak reproduced locally: per-request map never evicted (memory grows steadily)

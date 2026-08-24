@@ -1,0 +1,3 @@
+2026-08-23T20:58:00Z payments WARN capture attempt retried without idempotency key header present
+2026-08-23T20:59:00Z payments ERROR duplicate charges posted for order (dedup window miss on retry path)
+2026-08-23T22:30:00Z payments INFO max retry restored and key enforced; duplicates ceased

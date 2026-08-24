@@ -1,0 +1,3 @@
+2026-08-23T13:20:00Z checkout WARN address provider HTTP 429 quota exceeded (window remaining 0)
+2026-08-23T13:21:00Z checkout ERROR rate limit reached for provider account; retries amplify request volume
+2026-08-23T13:25:00Z checkout WARN backoff honored but quota already exhausted until midnight

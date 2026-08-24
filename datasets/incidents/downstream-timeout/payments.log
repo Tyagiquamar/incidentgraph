@@ -1,0 +1,5 @@
+2026-08-23T18:00:02Z payments api ERROR context deadline exceeded: provider.confirm (timeout=1000ms)
+2026-08-23T18:01:14Z payments api ERROR context deadline exceeded: provider.confirm (timeout=1000ms)
+2026-08-23T18:02:20Z payments api WARN circuit open for provider.confirm; failing fast
+2026-08-23T18:05:31Z checkout api ERROR upstream timeout while awaiting payment confirmation
+2026-08-23T18:07:44Z payments api WARN circuit half-open probe failed; downstream latency remains elevated

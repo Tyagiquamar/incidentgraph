@@ -1,0 +1,3 @@
+2026-08-23T09:47:00Z orders ERROR replica apply: replication conflict on ALTER TABLE (schema drift detected)
+2026-08-23T09:48:00Z orders ERROR analytics reads fail: column "discount_code" unknown column on replica
+2026-08-23T11:58:00Z orders INFO replica resynced; replay resumed

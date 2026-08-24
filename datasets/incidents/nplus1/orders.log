@@ -1,0 +1,7 @@
+2026-08-23T14:20:01Z orders api INFO GET /orders/8817 items=12 duration_ms=210
+2026-08-23T14:20:04Z orders db DEBUG SELECT id,name,price FROM order_items WHERE order_id=8817 AND idx=0
+2026-08-23T14:20:04Z orders db DEBUG SELECT id,name,price FROM order_items WHERE order_id=8817 AND idx=1
+2026-08-23T14:20:05Z orders db DEBUG SELECT id,name,price FROM order_items WHERE order_id=8817 AND idx=2
+2026-08-23T14:20:06Z orders api INFO GET /orders/9902 items=48 duration_ms=840
+2026-08-23T14:20:09Z orders db DEBUG repeated select count for request 9902: 48 queries (1 query per item)
+2026-08-23T14:21:10Z orders api WARN order history p95 latency grows with item count (n+1 signature)

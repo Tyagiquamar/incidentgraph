@@ -1,0 +1,3 @@
+2026-08-23T22:59:40Z checkout ERROR connection reset by peer during blue-green cutover (drain too fast)
+2026-08-23T22:59:55Z checkout WARN reset storms at LB: old pool drained in 5s while keep-alive 65s (misconfigured drain seconds)
+2026-08-23T23:09:00Z checkout INFO cutover completed; resets stopped

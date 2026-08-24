@@ -1,0 +1,3 @@
+2026-08-23T14:08:00Z checkout WARN scale-up arrived 90s after spike (metric feedback delay)
+2026-08-23T14:18:00Z checkout ERROR scale-down triggered mid-spike; capacity oscillation visible in metrics
+2026-08-23T14:29:00Z checkout WARN autoscaler config change removed stabilization window entirely

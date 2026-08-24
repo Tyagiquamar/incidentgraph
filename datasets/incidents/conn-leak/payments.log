@@ -1,0 +1,4 @@
+2026-08-23T12:00:00Z payments api INFO deploy 91ac03 added db client wrapper
+2026-08-23T12:30:00Z payments api WARN open connections=210 (baseline 60); connections not closed after request
+2026-08-23T13:10:22Z payments db WARN idle in transaction sessions accumulating; leak suspected in client wrapper
+2026-08-23T13:55:09Z payments api ERROR max_connections reached on primary; new requests rejected

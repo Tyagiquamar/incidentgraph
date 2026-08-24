@@ -1,0 +1,3 @@
+2026-08-23T00:01:00Z inventory ERROR remote error: tls: failed to verify certificate: x509 certificate has expired
+2026-08-23T00:03:00Z inventory WARN cert rotation job failed silently last week (cron exit code 1 unmonitored)
+2026-08-23T00:30:00Z inventory ERROR handshake still failing; credential expired chain presented to peers

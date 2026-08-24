@@ -1,0 +1,3 @@
+2026-08-23T06:12:00Z orders WARN slow query: SELECT ... FROM order_items JOIN reports_batch sequential scan (no index)
+2026-08-23T06:14:00Z orders ERROR cartesian join detected in report subquery; repeated select per report row
+2026-08-23T08:00:00Z orders INFO dashboard query rewritten with index and late filtering

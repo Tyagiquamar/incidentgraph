@@ -1,0 +1,12 @@
+2026-08-23T10:00:01Z checkout api INFO deploy d38ac2 promoted to production
+2026-08-23T10:02:11Z checkout api WARN pool acquire wait 850ms exceeded soft limit
+2026-08-23T10:03:41Z checkout api ERROR context deadline exceeded while acquiring db connection (pool exhausted)
+2026-08-23T10:04:02Z checkout api ERROR pool exhausted: active=5 waiting=214 timeout=2s
+2026-08-23T10:05:17Z checkout api WARN p99 latency 2600ms threshold=800ms
+2026-08-23T10:06:33Z checkout api ERROR context deadline exceeded while acquiring db connection (pool exhausted)
+2026-08-23T10:07:48Z checkout api INFO redis cache hit ratio 0.94 (normal)
+2026-08-23T10:08:55Z checkout api WARN cpu utilization stable at 38%
+2026-08-23T10:09:12Z checkout api ERROR pool exhausted: active=5 waiting=318 timeout=2s
+2026-08-23T10:10:29Z checkout api WARN p99 latency 2610ms threshold=800ms
+2026-08-23T10:11:40Z checkout api INFO redis latency p99 1.8ms (stable)
+2026-08-23T10:13:03Z checkout api ERROR context deadline exceeded while acquiring db connection (pool exhausted)

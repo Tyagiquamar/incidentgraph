@@ -1,0 +1,3 @@
+2026-08-23T09:58:00Z checkout INFO feature flag new_checkout_flow enabled for rollout percentage 10
+2026-08-23T10:04:00Z checkout ERROR nil map access in new flow path (defective code path), errors only for flagged users
+2026-08-23T10:41:00Z checkout INFO flag rolled back to control cohort; error rate normalized

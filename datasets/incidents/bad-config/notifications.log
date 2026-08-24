@@ -1,0 +1,4 @@
+2026-08-23T08:31:02Z notifications worker INFO deploy f77b19 started with WORKER_COUNT=0
+2026-08-23T08:32:15Z notifications worker WARN queue depth rising, no consumers joined consumer group
+2026-08-23T08:40:41Z notifications worker ERROR worker pool misconfigured: WORKER_COUNT=0; crash loop in supervisor restart
+2026-08-23T09:00:00Z notifications worker INFO backlog alert threshold breached
