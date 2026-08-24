@@ -25,7 +25,7 @@
 | Eval corpora expansion + re-baseline | DONE | 31/34 cases seeded via scripts/gencorpus+gencases; success 26%→**67.6%**, unsafe=0, halluc=0 |
 | SSE dashboard + server resume/heartbeat | DONE | Last-Event-ID + heartbeats server-side; useRunEvents manual reconnect w/ since; typecheck/tests/build green |
 | README (recruiter-facing) | DONE | root README.md |
-| GitHub Actions on pushed HEAD | see CI section | run id recorded after push |
+| GitHub Actions on pushed HEAD | DONE | run 32759658466 @ fb249aa: backend ✓ frontend ✓ docker ✓ (all steps success) |
 | Real-model smoke | PARTIAL | `cmd/evals -mode smoke` implemented; no credentials available ⇒ no numbers recorded |
 
 ## Verification log (this session)
@@ -61,6 +61,21 @@
   hash fallback exists but is explicit (`IG_EMBEDDING_FALLBACK=hash`) and
   surfaces as degraded. Document identity (provider/model/dim) is stamped on
   documents and verified before vector queries.
+
+## GitHub Actions (verified)
+
+- HEAD `fb249aa` — run **32759064633→superseded**, final run **32759658466**:
+  - `backend` **success**: gofmt(enforced) · go vet · go build · go test -race
+    (live pgvector service) · seed migration validation · security red-team
+    gate · eval suite + regression gate.
+  - `frontend` **success**: npm ci · typecheck · vitest · next build.
+  - `docker` **success**: image build.
+- Earlier runs on this branch failed and were fixed, not silenced:
+  - b10c358 run 32716826788: backend failure (uuid/"" in old eval wiring) — fixed by re-baseline work.
+  - 2b77c83 run 32757094818: TestReadOnlyDatabaseRoleRejectsWrites pointed the
+    restricted role at the wrong database → DSNForRole now targets the per-test DB (62d5fda).
+  - 62d5fda run 32759064633: seed step failed because global `*.log` gitignore
+    excluded corpus logs → negation rule added + files committed (fb249aa).
 
 ## Known limitations
 
