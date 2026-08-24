@@ -1,0 +1,11 @@
+{
+  "incident": {
+    "slug": "queue-backlog",
+    "title": "Email delivery delayed by hours",
+    "service": "notifications",
+    "severity": "sev3"
+  },
+  "files": [
+    {"path": "metrics/notifications/queue_lag", "source_type": "metrics", "file": "metrics.json", "trust": "tool_output"}
+  ]
+}

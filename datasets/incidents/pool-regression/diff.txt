@@ -1,0 +1,10 @@
+commit d38ac2
+author: deploy-bot (config apply)
+message: "Reduce POOL_SIZE for cost experiment"
+
+--- config/checkout.yaml
+- pool_size: 40
++ pool_size: 5
+
+context: cost optimization ticket CO-4121 requested halving connections;
+value was set to 5 instead of 20 during manual edit.

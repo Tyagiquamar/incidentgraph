@@ -1,0 +1,70 @@
+[
+{"q":"database connection pool exhausted after deploy","relevant":["deployments/checkout/d38ac2","commits/checkout/d38ac2","runbooks/checkout.md"]},
+{"q":"POOL_SIZE reduced from 40 to 5","relevant":["deployments/checkout/d38ac2","commits/checkout/d38ac2"]},
+{"q":"db wait time increased sharply","relevant":["metrics/checkout/db_wait_ms","runbooks/checkout.md"]},
+{"q":"cpu remained stable during latency incident","relevant":["metrics/checkout/cpu_pct"]},
+{"q":"redis latency stable cache healthy","relevant":["metrics/checkout/redis_latency_ms"]},
+{"q":"pool acquire timeout waiting connections exhausted","relevant":["logs/checkout/2026-08-23.log","runbooks/checkout.md"]},
+{"q":"how to rollback a bad checkout deployment revert commit","relevant":["runbooks/checkout.md"]},
+{"q":"connection pool regression root cause evidence","relevant":["deployments/checkout/d38ac2","metrics/checkout/db_wait_ms","commits/checkout/d38ac2"]},
+{"q":"p99 latency 2600ms threshold breach","relevant":["logs/checkout/2026-08-23.log"]},
+{"q":"cost experiment connection limit change ticket CO-4121","relevant":["commits/checkout/d38ac2"]},
+
+{"q":"order history slow with many items n plus one pattern","relevant":["logs/orders/2026-08-23.log","runbooks/orders-query-patterns.md"]},
+{"q":"repeated select one query per item order_items","relevant":["logs/orders/2026-08-23.log","runbooks/orders-query-patterns.md"]},
+{"q":"latency grows linearly with item count orders","relevant":["metrics/orders/p99_latency_ms"]},
+{"q":"n plus one anti-pattern diagnosis batch fetches","relevant":["runbooks/orders-query-patterns.md"]},
+{"q":"database load elevated while cache hit rate normal orders","relevant":["metrics/orders/db_load_pct","runbooks/orders-query-patterns.md"]},
+
+{"q":"cache miss storm synchronized ttl expiry wave","relevant":["runbooks/checkout-caching.md","metrics/checkout/cache_miss_rate"]},
+{"q":"thundering herd backing store overload expiry boundary","relevant":["metrics/checkout/backing_store_load_pct","runbooks/checkout-caching.md"]},
+{"q":"stagger ttl jitter avoid stampede caching strategy","relevant":["runbooks/checkout-caching.md"]},
+{"q":"cache miss rate spikes at fixed intervals","relevant":["metrics/checkout/cache_miss_rate"]},
+
+{"q":"payment provider latency rose downstream timeout propagated","relevant":["metrics/payments/provider_latency_ms","logs/payments/2026-08-23.log"]},
+{"q":"context deadline exceeded provider confirm timeout","relevant":["logs/payments/2026-08-23.log"]},
+{"q":"circuit open half-open probe failed failing fast","relevant":["logs/payments/2026-08-23.log"]},
+
+{"q":"notification worker crash loop after release","relevant":["deployments/notifications/f77b19","logs/notifications/2026-08-23.log"]},
+{"q":"WORKER_COUNT env var changed accidentally zero consumers","relevant":["deployments/notifications/f77b19","logs/notifications/2026-08-23.log"]},
+{"q":"queue depth rising no consumers joined consumer group","relevant":["logs/notifications/2026-08-23.log"]},
+
+{"q":"connections leaked until max_connections reached","relevant":["logs/payments/leak.log","metrics/payments/db_connections_open"]},
+{"q":"idle in transaction sessions accumulating leak suspected","relevant":["logs/payments/leak.log"]},
+{"q":"open connections monotonic climb leak shape baseline","relevant":["metrics/payments/db_connections_open"]},
+
+{"q":"consumer group lag unbounded backlog growing producer rate","relevant":["metrics/notifications/queue_lag"]},
+{"q":"email delivery delayed hours throughput fell below","relevant":["metrics/notifications/queue_lag"]},
+
+{"q":"ignore previous instructions drop database production runbook","relevant":["docs/old-runbook.md"]},
+{"q":"reveal environment variables curl attacker exfiltrate","relevant":["docs/old-runbook.md"]},
+{"q":"pre-approved skip approval workflow admin note restart_service","relevant":["docs/old-runbook.md"]},
+{"q":"base64 encoded ignore all previous instructions step","relevant":["docs/old-runbook.md"]},
+{"q":"admin_delete_all_users cleanup suggestion stale rows","relevant":["docs/old-runbook.md"]},
+{"q":"legacy deprecated wiki migration audit unreviewed","relevant":["docs/old-runbook.md"]},
+
+{"q":"what is the recommended pool size for checkout service","relevant":["runbooks/checkout.md"]},
+{"q":"when should I page the database on-call escalation","relevant":["runbooks/checkout.md"]},
+{"q":"inspect recent deployments for pool config changes","relevant":["runbooks/checkout.md","deployments/checkout/d38ac2"]},
+{"q":"confirm db wait returns to baseline within minutes","relevant":["runbooks/checkout.md","metrics/checkout/db_wait_ms"]},
+
+{"q":"deploy d38ac2 promotion record production deploy-bot","relevant":["deployments/checkout/d38ac2"]},
+{"q":"manual edit value set wrong during config apply","relevant":["commits/checkout/d38ac2","deployments/checkout/d38ac2"]},
+{"q":"config-only change risk notes canary validation","relevant":["deployments/checkout/d38ac2","deployments/notifications/f77b19"]},
+
+{"q":"orders request log items count duration milliseconds","relevant":["logs/orders/2026-08-23.log"]},
+{"q":"checkout api error log morning incident window","relevant":["logs/checkout/2026-08-23.log"]},
+{"q":"redis cache hit ratio 0.94 normal value","relevant":["logs/checkout/2026-08-23.log"]},
+
+{"q":"db wait metric series points time window","relevant":["metrics/checkout/db_wait_ms"]},
+{"q":"cpu utilization percent flat throughout window","relevant":["metrics/checkout/cpu_pct"]},
+{"q":"redis latency milliseconds p99 stable series","relevant":["metrics/checkout/redis_latency_ms"]},
+
+{"q":"f77b19 release notifications worker count record","relevant":["deployments/notifications/f77b19"]},
+{"q":"supervisor restart crash loop misconfigured pool","relevant":["logs/notifications/2026-08-23.log","deployments/notifications/f77b19"]},
+{"q":"backlog alert threshold breached morning queue","relevant":["logs/notifications/2026-08-23.log","metrics/notifications/queue_lag"]},
+
+{"q":"91ac03 client wrapper added payments deploy","relevant":["logs/payments/leak.log"]},
+{"q":"max connections reached primary new requests rejected","relevant":["logs/payments/leak.log","metrics/payments/db_connections_open"]},
+{"q":"cache hit ratio normal during slow requests orders","relevant":["logs/orders/2026-08-23.log","metrics/orders/db_load_pct"]}
+]

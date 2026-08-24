@@ -1,0 +1,2 @@
+{"series":"p99_latency_ms","service":"orders","window":"2026-08-23T14:00Z/14:30Z","points":[{"t":"14:00","v":120,"items":8},{"t":"14:10","v":240,"items":16},{"t":"14:20","v":520,"items":32},{"t":"14:25","v":980,"items":64}],"note":"latency grows linearly with item count"}
+{"series":"db_load_pct","service":"orders","window":"2026-08-23T14:00Z/14:30Z","points":[{"t":"14:00","v":40},{"t":"14:10","v":58},{"t":"14:20","v":76},{"t":"14:25","v":84}],"note":"database load elevated; cache hit rate normal"}

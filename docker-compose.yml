@@ -1,0 +1,90 @@
+# IncidentGraph full stack. Default profile: Postgres(+pgvector) only.
+# Optional profiles keep integrations out of the default dev loop:
+#   docker compose --profile hermes up      # Hermes adapter backend
+#   docker compose --profile openclaw up    # OpenClaw messaging gateway
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: incidentgraph
+      POSTGRES_PASSWORD: incidentgraph
+      POSTGRES_DB: incidentgraph
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U incidentgraph -d incidentgraph"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    command: ["/app/api"]
+    environment:
+      IG_DATABASE_URL: postgres://incidentgraph:incidentgraph@postgres:5432/incidentgraph?sslmode=disable
+      IG_HTTP_ADDR: ":8090"
+      IG_LLM_PROVIDER: mock
+      IG_DURABLEMCP_URL: http://durablemcp:8080
+    ports:
+      - "8090:8090"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    command: ["/app/worker"]
+    environment:
+      IG_DATABASE_URL: postgres://incidentgraph:incidentgraph@postgres:5432/incidentgraph?sslmode=disable
+      IG_LLM_PROVIDER: mock
+      IG_DURABLEMCP_URL: http://durablemcp:8080
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  mcp-server:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    command: ["/app/mcp-server"]
+    environment:
+      IG_DATABASE_URL: postgres://incidentgraph:incidentgraph@postgres:5432/incidentgraph?sslmode=disable
+    ports:
+      - "8091:8091"
+
+  durablemcp:
+    # External DurableMCP service (not forked): supply your image/ref here.
+    # When absent, side-effecting tool calls fail explicitly as degraded.
+    image: ghcr.io/example/durablemcp:latest
+    profiles: ["durablemcp"]
+    ports:
+      - "8080:8080"
+
+  hermes:
+    # Optional Hermes agent engine. IncidentGraph remains the runtime of
+    # record; hermes only drives investigations when explicitly selected.
+    image: ghcr.io/example/hermes-agent:latest
+    profiles: ["hermes"]
+    environment:
+      INCIDENTGRAPH_MCP_URL: http://mcp-server:8091/mcp
+    ports:
+      - "8123:8123"
+
+  openclaw:
+    # Optional messaging ingress (Slack/Telegram). Never required.
+    image: ghcr.io/example/openclaw-gateway:latest
+    profiles: ["openclaw"]
+    environment:
+      INCIDENTGRAPH_API_URL: http://api:8090
+      IG_OPENCLAW_VERIFY_TOKEN: ${IG_OPENCLAW_VERIFY_TOKEN:-}
+    ports:
+      - "8124:8124"
+
+volumes:
+  pgdata:

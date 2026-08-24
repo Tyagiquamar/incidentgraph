@@ -1,0 +1,12 @@
+{
+  "incident": {
+    "slug": "connection-leak",
+    "title": "Payments DB connections climb until exhaustion",
+    "service": "payments",
+    "severity": "sev2"
+  },
+  "files": [
+    {"path": "logs/payments/leak.log", "source_type": "log", "file": "payments.log", "trust": "tool_output"},
+    {"path": "metrics/payments/db_connections_open", "source_type": "metrics", "file": "metrics.json", "trust": "tool_output"}
+  ]
+}

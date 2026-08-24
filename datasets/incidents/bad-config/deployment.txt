@@ -1,0 +1,9 @@
+deployment record
+service: notifications
+commit: f77b19
+time: 2026-08-23T08:30:00Z
+environment: production
+promoted_by: release-train
+changes:
+  WORKER_COUNT: 8 -> 0 (env var changed accidentally; misconfigured)
+risk_notes: config-only change, no canary validation on queue depth

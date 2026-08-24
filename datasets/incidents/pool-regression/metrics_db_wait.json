@@ -1,0 +1,1 @@
+{"series":"db_wait_ms","service":"checkout","window":"2026-08-23T09:45Z/10:15Z","points":[{"t":"09:50","v":4},{"t":"09:55","v":5},{"t":"10:00","v":6},{"t":"10:02","v":180},{"t":"10:05","v":920},{"t":"10:08","v":1450},{"t":"10:12","v":1610},{"t":"10:15","v":1580}],"note":"db wait time increased sharply after 10:00 deployment"}

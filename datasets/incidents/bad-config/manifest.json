@@ -1,0 +1,12 @@
+{
+  "incident": {
+    "slug": "bad-deploy-config",
+    "title": "Notification worker crash loop after release",
+    "service": "notifications",
+    "severity": "sev3"
+  },
+  "files": [
+    {"path": "logs/notifications/2026-08-23.log", "source_type": "log", "file": "notifications.log", "trust": "tool_output"},
+    {"path": "deployments/notifications/f77b19", "source_type": "git_diff", "file": "deployment.txt", "trust": "internal_document"}
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "incident": {
+    "slug": "db-pool-regression",
+    "title": "Checkout latency increased from 180ms to 2.6s after deployment",
+    "service": "checkout",
+    "severity": "sev1"
+  },
+  "files": [
+    {"path": "runbooks/checkout.md", "source_type": "runbook", "file": "runbook.md", "trust": "internal_document"},
+    {"path": "logs/checkout/2026-08-23.log", "source_type": "log", "file": "checkout.log", "trust": "tool_output"},
+    {"path": "metrics/checkout/db_wait_ms", "source_type": "metrics", "file": "metrics_db_wait.json", "trust": "tool_output"},
+    {"path": "metrics/checkout/cpu_pct", "source_type": "metrics", "file": "metrics_stable.json", "trust": "tool_output"},
+    {"path": "metrics/checkout/redis_latency_ms", "source_type": "metrics", "file": "metrics_stable.json", "trust": "tool_output"},
+    {"path": "deployments/checkout/d38ac2", "source_type": "git_diff", "file": "deployment.txt", "trust": "internal_document"},
+    {"path": "commits/checkout/d38ac2", "source_type": "git_diff", "file": "diff.txt", "trust": "internal_document"}
+  ]
+}

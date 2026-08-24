@@ -1,0 +1,12 @@
+{
+  "incident": {
+    "slug": "downstream-timeout",
+    "title": "Payment confirmation timeouts propagate to checkout",
+    "service": "payments",
+    "severity": "sev2"
+  },
+  "files": [
+    {"path": "logs/payments/2026-08-23.log", "source_type": "log", "file": "payments.log", "trust": "tool_output"},
+    {"path": "metrics/payments/provider_latency_ms", "source_type": "metrics", "file": "metrics.json", "trust": "tool_output"}
+  ]
+}

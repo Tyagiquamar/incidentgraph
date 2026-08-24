@@ -1,0 +1,1 @@
+{"series":"db_connections_open","service":"payments","window":"2026-08-23T12:00Z/14:00Z","points":[{"t":"12:00","v":60},{"t":"12:30","v":120},{"t":"13:00","v":180},{"t":"13:30","v":230},{"t":"13:55","v":250}],"note":"monotonic climb to max_connections; classic leak shape"}

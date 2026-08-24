@@ -1,0 +1,13 @@
+{
+  "incident": {
+    "slug": "cache-stampede",
+    "title": "Product page latency spike after TTL expiry wave",
+    "service": "checkout",
+    "severity": "sev2"
+  },
+  "files": [
+    {"path": "runbooks/checkout-caching.md", "source_type": "runbook", "file": "runbook.md", "trust": "internal_document"},
+    {"path": "metrics/checkout/cache_miss_rate", "source_type": "metrics", "file": "metrics.json", "trust": "tool_output"},
+    {"path": "metrics/checkout/backing_store_load_pct", "source_type": "metrics", "file": "metrics.json", "trust": "tool_output"}
+  ]
+}

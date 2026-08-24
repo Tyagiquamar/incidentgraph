@@ -1,0 +1,9 @@
+deployment record
+service: checkout
+commit: d38ac2
+time: 2026-08-23T10:00:00Z
+environment: production
+promoted_by: deploy-bot
+changes:
+  POOL_SIZE: 40 -> 5
+risk_notes: config-only change; canary window was 2 minutes (short)

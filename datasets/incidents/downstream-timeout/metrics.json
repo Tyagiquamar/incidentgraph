@@ -1,0 +1,1 @@
+{"series":"provider_latency_ms","service":"payments","window":"2026-08-23T17:45Z/18:15Z","points":[{"t":"17:50","v":310},{"t":"18:00","v":820},{"t":"18:10","v":1450},{"t":"18:15","v":1520}],"note":"downstream latency rose sharply; propagated timeouts upstream"}

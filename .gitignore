@@ -1,0 +1,35 @@
+# Binaries
+/bin/
+*.exe
+*.exe~
+*.test
+*.out
+
+# Go
+/vendor/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+next-env.d.ts
+
+# Env & secrets
+.env
+.env.*
+!.env.example
+
+# Data
+/pgdata/
+/data/
+*.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Coverage
+coverage/
+*.cover

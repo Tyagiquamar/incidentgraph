@@ -1,0 +1,1 @@
+{"series":"queue_lag","service":"notifications","window":"2026-08-23T06:00Z/12:00Z","points":[{"t":"06:00","v":120},{"t":"08:00","v":900},{"t":"10:00","v":54000},{"t":"12:00","v":128000}],"note":"consumer throughput fell below producer rate; backlog growing unbounded since autoscaling change"}

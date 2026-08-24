@@ -1,0 +1,2 @@
+{"series":"cache_miss_rate","service":"checkout","window":"2026-08-23T16:00Z/16:30Z","points":[{"t":"16:00","v":0.04},{"t":"16:15","v":0.06},{"t":"16:15:30","v":0.71},{"t":"16:16","v":0.68},{"t":"16:20","v":0.12}],"note":"cache miss storm after synchronized ttl expired"}
+{"series":"db_load_pct","service":"checkout","window":"2026-08-23T16:00Z/16:30Z","points":[{"t":"16:00","v":42},{"t":"16:15:30","v":93},{"t":"16:16","v":90},{"t":"16:20","v":55}],"note":"backing store overloaded exactly at cache expiry boundary"}

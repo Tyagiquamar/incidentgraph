@@ -1,0 +1,93 @@
+name: ci
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: incidentgraph
+          POSTGRES_PASSWORD: incidentgraph
+          POSTGRES_DB: incidentgraph
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U incidentgraph -d incidentgraph"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      IG_TEST_DATABASE_URL: postgres://incidentgraph:incidentgraph@localhost:5433/incidentgraph?sslmode=disable
+      IG_DATABASE_URL: postgres://incidentgraph:incidentgraph@localhost:5433/incidentgraph?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: gofmt (enforced)
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "unformatted files:"; echo "$unformatted"; exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go build
+        run: go build ./...
+
+      - name: unit + integration tests (race)
+        run: go test -race ./... -count=1
+
+      - name: migration validation (fresh database)
+        run: go run ./cmd/seed
+
+      - name: security red-team suite (gate)
+        run: go run ./cmd/evals -mode security
+
+      - name: eval suite + regression gate
+        run: go run ./cmd/evals -mode eval -backend native-v1
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/dashboard
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/dashboard/package-lock.json
+
+      - name: install (lockfile)
+        run: npm ci
+
+      - name: typecheck
+        run: npm run typecheck
+
+      - name: tests
+        run: npm test
+
+      - name: production build
+        run: npm run build
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: backend
+    steps:
+      - uses: actions/checkout@v4
+      - name: build api image
+        run: docker build -f docker/Dockerfile -t incidentgraph-api .

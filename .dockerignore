@@ -1,0 +1,10 @@
+.git
+bin
+apps/dashboard/node_modules
+apps/dashboard/.next
+**/node_modules
+**/.next
+pgdata
+data
+*.log
+*.exe

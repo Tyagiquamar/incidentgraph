@@ -1,0 +1,14 @@
+{
+  "incident": {
+    "slug": "n-plus-one-query",
+    "title": "Order history endpoint slows as cart items grow",
+    "service": "orders",
+    "severity": "sev2"
+  },
+  "files": [
+    {"path": "runbooks/orders-query-patterns.md", "source_type": "runbook", "file": "runbook.md", "trust": "internal_document"},
+    {"path": "logs/orders/2026-08-23.log", "source_type": "log", "file": "orders.log", "trust": "tool_output"},
+    {"path": "metrics/orders/p99_latency_ms", "source_type": "metrics", "file": "metrics.json", "trust": "tool_output"},
+    {"path": "metrics/orders/db_load_pct", "source_type": "metrics", "file": "metrics.json", "trust": "tool_output"}
+  ]
+}
