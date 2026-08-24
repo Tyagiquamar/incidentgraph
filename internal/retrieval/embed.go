@@ -4,18 +4,26 @@
 package retrieval
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/binary"
+	"fmt"
 	"math"
 	"strings"
 	"sync"
 )
 
 // Embedder produces a fixed-dimension dense vector for text.
+//
+// Embed is context-aware and returns an error: a real provider failing must
+// surface as a failure of ingestion/search, NEVER as silent degradation to
+// another embedding space. Vectors from different providers/models must never
+// be mixed in one index; identity (Name + Dim) is persisted per document and
+// checked at query time.
 type Embedder interface {
 	Dim() int
-	Embed(text string) []float32
 	Name() string
+	Embed(ctx context.Context, text string) ([]float32, error)
 }
 
 // ---------------------------------------------------------------- hashing embedder
@@ -60,11 +68,11 @@ func tokenizeForEmbedding(text string) []string {
 	return out
 }
 
-func (h *HashEmbedder) Embed(text string) []float32 {
+func (h *HashEmbedder) Embed(_ context.Context, text string) ([]float32, error) {
 	vec := make([]float32, h.dim)
 	tokens := tokenizeForEmbedding(text)
 	if len(tokens) == 0 {
-		return vec
+		return vec, nil
 	}
 	add := func(tok string, weight float64, seed uint32) {
 		sum := fnv32a(tok, seed)
@@ -84,7 +92,7 @@ func (h *HashEmbedder) Embed(text string) []float32 {
 		add(bigram, 0.7, 0x9e3779b9)
 	}
 	normalize(vec)
-	return vec
+	return vec, nil
 }
 
 func fnv32a(s string, seed uint32) uint32 {
@@ -125,11 +133,19 @@ func Cosine(a, b []float32) float64 {
 // ---------------------------------------------------------------- openai-compatible embedder
 
 // OpenAIEmbedder calls an OpenAI-compatible /embeddings endpoint.
+//
+// Failure semantics: an API error returns an error — there is NO silent
+// fallback to a different embedding space. If an operator explicitly opts in
+// via IG_EMBEDDING_FALLBACK=hash, FallbackToHash degrades to the deterministic
+// embedder and marks every vector as degraded (surfaced via /healthz); this
+// mode exists only for local demos and is OFF by default.
 type OpenAIEmbedder struct {
 	BaseURL, APIKey, Model string
 	dim                    int
 	client                 *httpClient
 	mu                     sync.Mutex
+
+	fallbackHash bool // explicit opt-in only
 }
 
 func NewOpenAIEmbedder(baseURL, apiKey, model string, dim int) *OpenAIEmbedder {
@@ -139,21 +155,35 @@ func NewOpenAIEmbedder(baseURL, apiKey, model string, dim int) *OpenAIEmbedder {
 	return &OpenAIEmbedder{BaseURL: baseURL, APIKey: apiKey, Model: model, dim: dim, client: newHTTPClient(30)}
 }
 
-func (o *OpenAIEmbedder) Dim() int     { return o.dim }
-func (o *OpenAIEmbedder) Name() string { return o.Model }
+// EnableExplicitHashFallback opts INTO degraded hash fallback. Never enabled
+// by default; bootstrap surfaces the degraded state when set.
+func (o *OpenAIEmbedder) EnableExplicitHashFallback() { o.fallbackHash = true }
 
-func (o *OpenAIEmbedder) Embed(text string) []float32 {
+// Degraded reports whether this embedder is configured to silently fall back
+// to hash vectors on failure (used by health/metadata surfacing).
+func (o *OpenAIEmbedder) Degraded() bool { return o.fallbackHash }
+
+func (o *OpenAIEmbedder) Dim() int     { return o.dim }
+func (o *OpenAIEmbedder) Name() string { return "openai:" + o.Model }
+
+func (o *OpenAIEmbedder) Embed(ctx context.Context, text string) ([]float32, error) {
 	body := map[string]any{"model": o.Model, "input": text}
 	var resp struct {
 		Data []struct {
 			Embedding []float32 `json:"embedding"`
 		} `json:"data"`
 	}
-	if err := o.client.postJSON(o.BaseURL+"/embeddings", o.APIKey, body, &resp); err != nil || len(resp.Data) == 0 {
-		// Fail closed to the deterministic embedder so ingestion never breaks;
-		// swap-in quality is benchmarked either way.
-		fb := NewHashEmbedder(o.dim)
-		return fb.Embed(text)
+	err := o.client.postJSONCtx(ctx, o.BaseURL+"/embeddings", o.APIKey, body, &resp)
+	if err != nil || len(resp.Data) == 0 {
+		if o.fallbackHash {
+			fb := NewHashEmbedder(o.dim)
+			v, _ := fb.Embed(ctx, text)
+			return v, nil // explicitly configured degraded mode
+		}
+		if err != nil {
+			return nil, fmt.Errorf("embedding provider %s failed: %w", o.Name(), err)
+		}
+		return nil, fmt.Errorf("embedding provider %s returned no data", o.Name())
 	}
 	v := resp.Data[0].Embedding
 	if len(v) > o.dim {
@@ -165,7 +195,7 @@ func (o *OpenAIEmbedder) Embed(text string) []float32 {
 		v = padded
 	}
 	normalize(v)
-	return v
+	return v, nil
 }
 
 var _ = sha256.Sum256

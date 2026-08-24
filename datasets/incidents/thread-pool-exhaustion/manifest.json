@@ -1,0 +1,40 @@
+{
+  "incident": {
+    "slug": "thread-pool-exhaustion",
+    "title": "Checkout worker threads starved under flash sale load",
+    "service": "checkout",
+    "severity": "sev2"
+  },
+  "files": [
+    {
+      "path": "logs/checkout/2026-08-23.log",
+      "source_type": "log",
+      "file": "service.log",
+      "trust": "tool_output"
+    },
+    {
+      "path": "metrics/checkout/thread_pool_active_pct",
+      "source_type": "metrics",
+      "file": "metrics_symptom.json",
+      "trust": "tool_output"
+    },
+    {
+      "path": "metrics/checkout/p99_latency_ms",
+      "source_type": "metrics",
+      "file": "metrics_p99.json",
+      "trust": "tool_output"
+    },
+    {
+      "path": "deployments/checkout/de11ad22",
+      "source_type": "deployment",
+      "file": "deployment.txt",
+      "trust": "internal_document"
+    },
+    {
+      "path": "commits/checkout/de11ad22",
+      "source_type": "git_diff",
+      "file": "diff.txt",
+      "trust": "internal_document"
+    }
+  ]
+}

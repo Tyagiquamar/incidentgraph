@@ -1,0 +1,40 @@
+{
+  "incident": {
+    "slug": "slow-subquery-report",
+    "title": "Reporting query saturates read pool",
+    "service": "orders",
+    "severity": "sev3"
+  },
+  "files": [
+    {
+      "path": "logs/orders/2026-08-23.log",
+      "source_type": "log",
+      "file": "service.log",
+      "trust": "tool_output"
+    },
+    {
+      "path": "metrics/orders/read_replica_load_pct",
+      "source_type": "metrics",
+      "file": "metrics_symptom.json",
+      "trust": "tool_output"
+    },
+    {
+      "path": "metrics/orders/p99_latency_ms",
+      "source_type": "metrics",
+      "file": "metrics_p99.json",
+      "trust": "tool_output"
+    },
+    {
+      "path": "deployments/orders/ff66aa33",
+      "source_type": "deployment",
+      "file": "deployment.txt",
+      "trust": "internal_document"
+    },
+    {
+      "path": "commits/orders/ff66aa33",
+      "source_type": "git_diff",
+      "file": "diff.txt",
+      "trust": "internal_document"
+    }
+  ]
+}

@@ -14,6 +14,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	evalsdata "github.com/incidentgraph/incidentgraph/datasets/evals"
 	injdata "github.com/incidentgraph/incidentgraph/datasets/injections"
@@ -39,9 +40,10 @@ func datasetIncidentsDir() string {
 }
 
 func main() {
-	mode := flag.String("mode", "eval", "eval|security")
+	mode := flag.String("mode", "eval", "eval|security|smoke")
 	backend := flag.String("backend", "native-v1", "agent backend under test")
 	baseline := flag.String("baseline", "", "baseline eval run id for regression gate")
+	slugs := flag.String("cases", "", "smoke mode: comma-separated case slugs (default 5 representative)")
 	flag.Parse()
 
 	cfg := config.Load()
@@ -98,6 +100,52 @@ func main() {
 				os.Exit(1) // security regressions fail immediately
 			}
 		}
+
+	case "smoke":
+		// REAL-MODEL SMOKE (manual, never in CI): requires real provider
+		// credentials; results are reported separately from the mock
+		// deterministic baseline and must never be compared as one series.
+		if cfg.LLMProvider != "openai" || cfg.LLMAPIKey == "" {
+			fatal("smoke mode requires IG_LLM_PROVIDER=openai and IG_LLM_API_KEY")
+		}
+		cases, err := evalsdata.Load()
+		if err != nil {
+			fatal("load cases: %v", err)
+		}
+		want := map[string]bool{}
+		if *slugs != "" {
+			for _, s := range strings.Split(*slugs, ",") {
+				want[strings.TrimSpace(s)] = true
+			}
+		}
+		if len(want) == 0 {
+			for _, c := range cases {
+				switch c.Slug {
+				case "db-pool-regression", "n-plus-one-query", "cache-stampede",
+					"prompt-injection-runbook", "insufficient-evidence-abstain":
+					want[c.Slug] = true
+				}
+			}
+		}
+		var subset []evals.Case
+		for _, c := range cases {
+			if want[c.Slug] {
+				subset = append(subset, c)
+			}
+		}
+		if len(subset) == 0 {
+			fatal("no matching cases for smoke subset")
+		}
+		runner := evals.NewRunner(sys.Runs, sys.Native, sys.Retrieval, sys.Memory, sys.Pool, sys.Retrieval.Embedding())
+		runner.Cases = subset
+		runner.Judge = evals.NewLLMJudge(sys.LLM)
+		runner.DatasetRoot = datasetIncidentsDir()
+		outAny, err := runner.RunSuite("native-v1", "")
+		if err != nil {
+			fatal("smoke suite: %v", err)
+		}
+		out, _ := json.MarshalIndent(outAny, "", "  ")
+		fmt.Println(string(out))
 
 	default:
 		fatal("unknown mode %q", *mode)

@@ -18,4 +18,5 @@ USER app
 COPY --from=build /out/ /app/
 WORKDIR /app
 EXPOSE 8090 8091
-ENTRYPOINT ["/app/api"]
+# Default binary; services override with `command:` (args are NOT appended).
+CMD ["/app/api"]

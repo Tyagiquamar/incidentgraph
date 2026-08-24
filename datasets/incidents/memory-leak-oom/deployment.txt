@@ -1,0 +1,1 @@
+deployment service=inventory commit ea55bb99 released serializer v2 (leak introduced here)

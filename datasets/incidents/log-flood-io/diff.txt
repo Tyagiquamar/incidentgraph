@@ -1,0 +1,1 @@
+commit ba11db33 logger.default_level = debug # floods disk at peak write volume

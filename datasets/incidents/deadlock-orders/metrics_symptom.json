@@ -1,0 +1,18 @@
+{
+ "series": "lock_wait_ms",
+ "points": [
+  {
+   "t": "08:00",
+   "v": 4
+  },
+  {
+   "t": "12:00",
+   "v": 90
+  },
+  {
+   "t": "15:00",
+   "v": 310
+  }
+ ],
+ "note": "lock wait time climbing between order update transactions touching inventory rows in different order; deadlock detected every few minutes with serialization failure retries."
+}

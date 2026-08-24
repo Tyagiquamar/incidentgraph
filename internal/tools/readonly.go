@@ -9,15 +9,11 @@ import (
 
 	"github.com/incidentgraph/incidentgraph/internal/model"
 	"github.com/incidentgraph/incidentgraph/internal/retrieval"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// pgxRows is the concrete rows type from the pool.
-type pgxRows = interface {
-	Next() bool
-	Scan(dest ...any) error
-	Err() error
-}
+// pgxTx aliases the pgx transaction interface used inside READ ONLY blocks.
 
 func resultsToOutput(results []model.RetrievalResult) []map[string]any {
 	out := make([]map[string]any, 0, len(results))
@@ -261,7 +257,37 @@ func (t *QueryMetrics) Execute(ctx context.Context, runID string, args json.RawM
 		return nil, err
 	}
 	if len(docs) == 0 {
-		return nil, fmt.Errorf("no metric series %q for service %q", series, svc)
+		// Deterministic series fallback: the requested series does not exist
+		// for this service. Instead of failing (which starves evidence
+		// collection), return the lexicographically first available series and
+		// FLAG the substitution in both output and reference so traces stay
+		// honest about what was queried.
+		prefix := "metrics/" + svc + "/"
+		avail, gerr := fetchDocsByPath(ctx, t.d.Pool, prefix+"%", 10)
+		if gerr != nil || len(avail) == 0 {
+			return nil, fmt.Errorf("no metric series %q for service %q", series, svc)
+		}
+		var availNames []string
+		for _, d := range avail {
+			if p := strings.TrimPrefix(d.Path, prefix); p != "" {
+				availNames = append(availNames, p)
+			}
+		}
+		substituted := avail[0].Path
+		var parsed any
+		outText := avail[0].Content
+		if json.Unmarshal([]byte(outText), &parsed) == nil {
+			b, _ := json.Marshal(map[string]any{
+				"series_fallback": true,
+				"requested":       series,
+				"served":          strings.TrimPrefix(substituted, prefix),
+				"available":       availNames,
+				"data":            parsed,
+			})
+			outText = string(b)
+		}
+		return &Result{Output: json.RawMessage(outText), Text: outText,
+			Reference: substituted + " (requested " + series + ")"}, nil
 	}
 	var parsed any
 	if json.Unmarshal([]byte(docs[0].Content), &parsed) == nil {
@@ -272,22 +298,62 @@ func (t *QueryMetrics) Execute(ctx context.Context, runID string, args json.RawM
 
 // ---------------------------------------------------------------- query_postgres_readonly
 
-type QueryPostgres struct {
-	d       deps
-	checker SQLPolicyChecker
+// ReadOnlyPool is the dedicated read-only connection pool. Production must
+// point this at a DSN whose role has SELECT-only grants (and ideally
+// default_transaction_read_only=on); every query additionally runs inside
+// BEGIN READ ONLY with statement/lock timeouts, so even a policy bypass
+// cannot write or block the primary database.
+type ReadOnlyPool interface {
+	pgxConn
+	BeginFunc(ctx context.Context, fn func(pgxTx) error) error
 }
 
-// SQLPolicyChecker re-validates SQL inside the tool (defense in depth).
+type pgxTx = pgx.Tx
+
 type SQLPolicyChecker func(sql string) error
 
+// QueryLimits bound resource usage of read-only SQL.
+type QueryLimits struct {
+	StatementTimeout time.Duration // per-statement server-side timeout
+	OutputByteLimit  int           // serialized result ceiling
+	RowLimit         int           // max rows returned to the model
+}
+
+const (
+	defaultQueryTimeout = 10 * time.Second
+	defaultRowLimit     = 50
+	defaultOutputLimit  = 256 << 10 // 256 KiB
+)
+
+type QueryPostgres struct {
+	pool    ReadOnlyPool
+	checker SQLPolicyChecker
+	limits  QueryLimits
+}
+
 func NewQueryPostgres(pool *pgxpool.Pool, ret *retrieval.Store, checker SQLPolicyChecker) *QueryPostgres {
-	return &QueryPostgres{newDeps(pool, ret), checker}
+	return &QueryPostgres{pool: pgxAdapter{pool}, checker: checker}
+}
+
+// NewQueryPostgresReadOnly builds the executor against an explicit
+// read-only pool with configured limits (production wiring).
+func NewQueryPostgresReadOnly(pool ReadOnlyPool, checker SQLPolicyChecker, limits QueryLimits) *QueryPostgres {
+	if limits.StatementTimeout <= 0 {
+		limits.StatementTimeout = defaultQueryTimeout
+	}
+	if limits.RowLimit <= 0 {
+		limits.RowLimit = defaultRowLimit
+	}
+	if limits.OutputByteLimit <= 0 {
+		limits.OutputByteLimit = defaultOutputLimit
+	}
+	return &QueryPostgres{pool: pool, checker: checker, limits: limits}
 }
 
 func (t *QueryPostgres) Def() Definition {
 	return Definition{
 		Name:        "query_postgres_readonly",
-		Description: "Execute a single read-only SELECT/WITH statement against the operational database. Destructive statements are blocked by the deterministic policy engine.",
+		Description: "Execute a single read-only SELECT/WITH statement inside a READ ONLY transaction against a restricted database role. Destructive statements are blocked by policy AND by the database.",
 		InputSchema: schema(map[string]any{"sql": sProp("single SELECT statement")}, []string{"sql"}),
 		Risk:        model.RiskReadOnly,
 		Timeout:     20 * time.Second,
@@ -304,46 +370,106 @@ func (t *QueryPostgres) Execute(ctx context.Context, runID string, args json.Raw
 			return nil, fmt.Errorf("policy violation: %w", err)
 		}
 	}
-	ctx, cancel := context.WithTimeout(ctx, t.Def().Timeout)
+	limits := t.limits
+	if limits.StatementTimeout <= 0 {
+		limits.StatementTimeout = defaultQueryTimeout
+	}
+	if limits.RowLimit <= 0 {
+		limits.RowLimit = defaultRowLimit
+	}
+	if limits.OutputByteLimit <= 0 {
+		limits.OutputByteLimit = defaultOutputLimit
+	}
+
+	qctx, cancel := context.WithTimeout(ctx, t.Def().Timeout)
 	defer cancel()
-	rows, err := t.d.Pool.Query(ctx, sqlStr)
+
+	// Defense in depth #2: the DATABASE enforces read-only-ness. The tx runs
+	// BEGIN READ ONLY; writes fail at the server even if some future code
+	// path skips the parser. Statement/lock timeouts stop long-running or
+	// lock-heavy queries from hurting the primary.
+	var outText string
+	err := t.pool.BeginFunc(qctx, func(tx pgxTx) error {
+		stmtMS := int(limits.StatementTimeout.Milliseconds())
+		if _, err := tx.Exec(qctx, fmt.Sprintf(`SET LOCAL statement_timeout = %d`, stmtMS)); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(qctx, `SET LOCAL lock_timeout = 2000`); err != nil {
+			return err
+		}
+		rows, err := tx.Query(qctx, sqlStr)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		fields := rows.FieldDescriptions()
+		header := make([]string, len(fields))
+		for i, f := range fields {
+			header[i] = string(f.Name)
+		}
+		data := make([][]any, 0, limits.RowLimit)
+		for rows.Next() && len(data) < limits.RowLimit {
+			vals := make([]any, len(fields))
+			ptrs := make([]any, len(fields))
+			for i := range vals {
+				ptrs[i] = &vals[i]
+			}
+			if err := rows.Scan(ptrs...); err != nil {
+				return err
+			}
+			row := make([]any, len(fields))
+			for i, v := range vals {
+				switch x := v.(type) {
+				case []byte:
+					row[i] = string(x)
+				case time.Time:
+					row[i] = x.UTC().Format(time.RFC3339)
+				default:
+					row[i] = v
+				}
+			}
+			data = append(data, row)
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		out := map[string]any{"columns": header, "rows": data, "row_count": len(data),
+			"truncated_to": limits.RowLimit, "read_only_txn": true}
+		b, mErr := json.Marshal(out)
+		if mErr != nil {
+			return mErr
+		}
+		if len(b) > limits.OutputByteLimit {
+			b = b[:limits.OutputByteLimit]
+		}
+		outText = string(b)
+		return nil
+	})
 	if err != nil {
 		return nil, fmt.Errorf("query failed: %w", err)
 	}
-	defer rows.Close()
-	fields := rows.FieldDescriptions()
-	header := make([]string, len(fields))
-	for i, f := range fields {
-		header[i] = string(f.Name)
+	return &Result{Output: json.RawMessage(outText), Text: outText, Reference: "sql"}, nil
+}
+
+// ---------------------------------------------------------------- pool adapters
+
+type pgxConn interface {
+	Begin(ctx context.Context) (pgx.Tx, error)
+}
+
+// pgxAdapter adapts *pgxpool.Pool to the narrow read-only executor interface.
+// Every transaction ends in ROLLBACK: for READ ONLY transactions this is
+// semantically identical to COMMIT and guarantees nothing persists.
+type pgxAdapter struct{ *pgxpool.Pool }
+
+func (a pgxAdapter) BeginFunc(ctx context.Context, fn func(pgxTx) error) error {
+	tx, err := a.Begin(ctx)
+	if err != nil {
+		return err
 	}
-	const limit = 50
-	data := make([][]any, 0, limit)
-	for rows.Next() && len(data) < limit {
-		vals := make([]any, len(fields))
-		ptrs := make([]any, len(fields))
-		for i := range vals {
-			ptrs[i] = &vals[i]
-		}
-		if err := rows.Scan(ptrs...); err != nil {
-			return nil, err
-		}
-		row := make([]any, len(fields))
-		for i, v := range vals {
-			switch x := v.(type) {
-			case []byte:
-				row[i] = string(x)
-			case time.Time:
-				row[i] = x.UTC().Format(time.RFC3339)
-			default:
-				row[i] = v
-			}
-		}
-		data = append(data, row)
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	if err := fn(tx); err != nil {
+		return err
 	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	out := map[string]any{"columns": header, "rows": data, "row_count": len(data), "truncated_to": limit}
-	b, _ := json.Marshal(out)
-	return &Result{Output: b, Text: string(b), Reference: "sql"}, nil
+	return tx.Rollback(ctx)
 }

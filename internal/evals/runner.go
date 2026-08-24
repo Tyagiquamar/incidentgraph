@@ -177,6 +177,18 @@ func (r *Runner) runCase(ctx context.Context, evalRunID, backend string, c Case)
 	}
 	sc := gradeCase(gi, r.Judge)
 	sc.EvalRunID = evalRunID
+	// Provenance: bind every score to its concrete agent run so any number on
+	// the dashboard/report can be traced back to a full persisted trajectory.
+	if len(sc.Details) > 0 {
+		var d map[string]any
+		if json.Unmarshal(sc.Details, &d) == nil {
+			d["run_id"] = runID
+			d["incident_id"] = incID
+			d["final_status"] = statusOfRun(fin)
+			d["report_root_cause_category"] = reportCategory(report)
+			sc.Details, _ = json.Marshal(d)
+		}
+	}
 
 	if _, err := r.Pool.Exec(ctx, `INSERT INTO eval_scores
 	    (id, eval_run_id, case_slug, task_success, root_cause_score, evidence_score, tool_accuracy,
@@ -314,6 +326,13 @@ func loadReport(r *Runner, ctx context.Context, runID string) *model.IncidentRep
 		return nil
 	}
 	return &rep
+}
+
+func statusOfRun(fin *model.AgentRun) string {
+	if fin == nil {
+		return ""
+	}
+	return fin.Status + "/" + fin.TerminationReason
 }
 
 func reportRoot(rep *model.IncidentReport) string {

@@ -2,7 +2,10 @@ package retrieval
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"time"
 )
@@ -14,11 +17,15 @@ func newHTTPClient(timeoutSec int) *httpClient {
 type httpClient struct{ c *http.Client }
 
 func (h *httpClient) postJSON(url, apiKey string, body any, out any) error {
+	return h.postJSONCtx(context.Background(), url, apiKey, body, out)
+}
+
+func (h *httpClient) postJSONCtx(ctx context.Context, url, apiKey string, body any, out any) error {
 	b, err := json.Marshal(body)
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(b))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(b))
 	if err != nil {
 		return err
 	}
@@ -32,13 +39,27 @@ func (h *httpClient) postJSON(url, apiKey string, body any, out any) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
-		return &statusError{Code: resp.StatusCode}
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return &statusError{Code: resp.StatusCode, Body: string(raw)}
 	}
 	return json.NewDecoder(resp.Body).Decode(out)
 }
 
-type statusError struct{ Code int }
+type statusError struct {
+	Code int
+	Body string
+}
 
 func (e *statusError) Error() string {
+	if e.Body != "" {
+		return fmt.Sprintf("http %d: %s", e.Code, truncateForErr(e.Body))
+	}
 	return http.StatusText(e.Code)
+}
+
+func truncateForErr(s string) string {
+	if len(s) > 200 {
+		return s[:200]
+	}
+	return s
 }

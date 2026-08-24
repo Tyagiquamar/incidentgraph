@@ -1,0 +1,1 @@
+commit 7a1b9c4d archive_command = 'cp %p /archive/%f' # archive lag risk when the wal volume fills

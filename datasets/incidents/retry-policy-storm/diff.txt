@@ -1,0 +1,1 @@
+commit bb99cc11 sdk.retry.max_retries = unlimited # backoff disabled by default in v3

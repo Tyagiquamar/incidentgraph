@@ -1,0 +1,40 @@
+{
+  "incident": {
+    "slug": "dns-resolution",
+    "title": "Inventory service connection errors burst",
+    "service": "inventory",
+    "severity": "sev3"
+  },
+  "files": [
+    {
+      "path": "logs/inventory/2026-08-23.log",
+      "source_type": "log",
+      "file": "service.log",
+      "trust": "tool_output"
+    },
+    {
+      "path": "metrics/inventory/dns_failures_per_min",
+      "source_type": "metrics",
+      "file": "metrics_symptom.json",
+      "trust": "tool_output"
+    },
+    {
+      "path": "metrics/inventory/p99_latency_ms",
+      "source_type": "metrics",
+      "file": "metrics_p99.json",
+      "trust": "tool_output"
+    },
+    {
+      "path": "deployments/inventory/c1d2e3f4",
+      "source_type": "deployment",
+      "file": "deployment.txt",
+      "trust": "internal_document"
+    },
+    {
+      "path": "commits/inventory/c1d2e3f4",
+      "source_type": "git_diff",
+      "file": "diff.txt",
+      "trust": "internal_document"
+    }
+  ]
+}

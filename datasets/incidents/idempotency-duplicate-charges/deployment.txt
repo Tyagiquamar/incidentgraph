@@ -1,0 +1,1 @@
+deployment service=payments commit ca11ef12 payment SDK upgrade changed retry semantics (max retry removed)

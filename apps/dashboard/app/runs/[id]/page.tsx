@@ -1,5 +1,7 @@
 import Link from "next/link";
+import LiveEvents from "./LiveEvents";
 import {
+  API_URL,
   apiGet,
   type AgentRun,
   type AgentStep,
@@ -107,14 +109,16 @@ export default async function RunTrace({
             )}
           </section>
 
+          <LiveEvents runId={run.id} apiUrl={API_URL} />
+
           <p className="section">
             <Link href={`/runs/${run.id}/evidence`}>
               Evidence graph for this run →
-            </Link>{" "}
-            · live events: <code>/runs/{shortID(run.id)}/events</code> (SSE)
+            </Link>
           </p>
         </>
       )}
     </>
   );
 }
+

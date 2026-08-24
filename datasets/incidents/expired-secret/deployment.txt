@@ -1,0 +1,1 @@
+deployment service=payments commit f00dcafe rotated provider secret manually after expiry alert

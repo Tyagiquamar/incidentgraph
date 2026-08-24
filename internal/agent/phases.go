@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -11,12 +12,13 @@ import (
 	"github.com/incidentgraph/incidentgraph/internal/llm"
 	"github.com/incidentgraph/incidentgraph/internal/model"
 	"github.com/incidentgraph/incidentgraph/internal/observability"
+	"github.com/incidentgraph/incidentgraph/internal/runs"
 	"github.com/incidentgraph/incidentgraph/internal/security"
 )
 
 // ---------------------------------------------------------------- context_build
 
-func (r *NativeRunner) phaseContextBuild(ctx context.Context, run *model.AgentRun) error {
+func (r *NativeRunner) phaseContextBuild(ctx context.Context, run *model.AgentRun, lease runs.Lease) error {
 	start := timeNow()
 	inc, err := r.incident(ctx, run)
 	if err != nil {
@@ -61,7 +63,9 @@ func (r *NativeRunner) phaseContextBuild(ctx context.Context, run *model.AgentRu
 		}
 	}
 	candidates = append(candidates, sameService...)
-	if len(sameService) < 6 {
+	// Cross-service documents are distractors: include them ONLY when the
+	// incident's own service has no indexed evidence at all (cold corpus).
+	if len(sameService) == 0 {
 		candidates = append(candidates, otherService...)
 	}
 
@@ -102,12 +106,12 @@ func (r *NativeRunner) phaseContextBuild(ctx context.Context, run *model.AgentRu
 		return err
 	}
 	r.emit(ctx, run.ID, "step_completed", map[string]any{"step": phaseContextBuild, "selected": len(selected)})
-	return r.setPhase(ctx, run, phasePlan)
+	return r.setPhase(ctx, lease, run, phasePlan)
 }
 
 // ---------------------------------------------------------------- plan
 
-func (r *NativeRunner) phasePlan(ctx context.Context, run *model.AgentRun) error {
+func (r *NativeRunner) phasePlan(ctx context.Context, run *model.AgentRun, lease runs.Lease) error {
 	inc, err := r.incident(ctx, run)
 	if err != nil {
 		return err
@@ -135,12 +139,12 @@ func (r *NativeRunner) phasePlan(ctx context.Context, run *model.AgentRun) error
 		return err
 	}
 	r.emit(ctx, run.ID, "step_completed", map[string]any{"step": phasePlan, "tools_needed": plan.ToolsNeeded})
-	return r.setPhase(ctx, run, phaseInvestigate)
+	return r.setPhase(ctx, lease, run, phaseInvestigate)
 }
 
 // ---------------------------------------------------------------- investigate
 
-func (r *NativeRunner) phaseInvestigate(ctx context.Context, run *model.AgentRun) error {
+func (r *NativeRunner) phaseInvestigate(ctx context.Context, run *model.AgentRun, lease runs.Lease) error {
 	inc, err := r.incident(ctx, run)
 	if err != nil {
 		return err
@@ -169,7 +173,7 @@ func (r *NativeRunner) phaseInvestigate(ctx context.Context, run *model.AgentRun
 		// loop protection: a tool may not exceed MaxSameToolRepeats executions
 		// over the whole run lifetime (counts persisted history across resumes).
 		if doneTools[toolName] >= r.deps.Budgets.MaxSameToolRepeats {
-			return r.finish(ctx, run.ID, model.RunFailed, "TOOL_LOOP",
+			return r.finish(ctx, lease, model.RunFailed, "TOOL_LOOP",
 				fmt.Sprintf("tool %s repeated too often", toolName))
 		}
 		if doneTools[toolName] >= 1 {
@@ -179,7 +183,7 @@ func (r *NativeRunner) phaseInvestigate(ctx context.Context, run *model.AgentRun
 		if args == nil {
 			continue
 		}
-		if err := r.proposeAndExecute(ctx, run, toolName, args); err != nil {
+		if err := r.proposeAndExecute(ctx, run, lease, toolName, args); err != nil {
 			if pe, ok := err.(*pausedError); ok {
 				return pe // pause must stop the whole drive loop (needs_approval)
 			}
@@ -193,7 +197,7 @@ func (r *NativeRunner) phaseInvestigate(ctx context.Context, run *model.AgentRun
 	// evidence sufficiency check
 	nodes, _ := r.deps.Evidence.Nodes(ctx, run.ID)
 	if len(nodes) >= 3 || newCalls == 0 {
-		return r.finishInvestigate(ctx, run)
+		return r.finishInvestigate(ctx, run, lease)
 	}
 	// not enough yet — second pass with logs/metrics fallback then move on
 	for _, toolName := range []string{"search_logs", "query_metrics"} {
@@ -204,19 +208,19 @@ func (r *NativeRunner) phaseInvestigate(ctx context.Context, run *model.AgentRun
 		if args == nil {
 			continue
 		}
-		if err := r.proposeAndExecute(ctx, run, toolName, args); err != nil {
+		if err := r.proposeAndExecute(ctx, run, lease, toolName, args); err != nil {
 			if pe, ok := err.(*pausedError); ok {
 				return pe
 			}
 		}
 		doneTools[toolName]++
 	}
-	return r.finishInvestigate(ctx, run)
+	return r.finishInvestigate(ctx, run, lease)
 }
 
 // finishInvestigate persists the investigate phase step (structured summary;
 // individual calls live in tool_calls) and advances to hypothesis.
-func (r *NativeRunner) finishInvestigate(ctx context.Context, run *model.AgentRun) error {
+func (r *NativeRunner) finishInvestigate(ctx context.Context, run *model.AgentRun, lease runs.Lease) error {
 	calls, _ := r.deps.Runs.ToolCalls(ctx, run.ID)
 	byStatus := map[string]int{}
 	byTool := map[string]int{}
@@ -233,23 +237,30 @@ func (r *NativeRunner) finishInvestigate(ctx context.Context, run *model.AgentRu
 		return err
 	}
 	r.emit(ctx, run.ID, "step_completed", map[string]any{"step": phaseInvestigate, "tool_calls": len(calls)})
-	return r.setPhase(ctx, run, phaseHypothesis)
+	return r.setPhase(ctx, lease, run, phaseHypothesis)
 }
 
-// proposeAndExecute runs policy -> persist -> execute -> evidence/security.
-func (r *NativeRunner) proposeAndExecute(ctx context.Context, run *model.AgentRun, toolName string, args json.RawMessage) error {
+// proposeAndExecute runs policy -> persist (fenced) -> execute -> evidence/security.
+func (r *NativeRunner) proposeAndExecute(ctx context.Context, run *model.AgentRun, lease runs.Lease, toolName string, args json.RawMessage) error {
 	decision := r.deps.Policy.Evaluate(toolName, args)
+	callID := model.New()
 	tc := model.ToolCall{
-		ID:                model.New(),
+		ID:                callID,
 		RunID:             run.ID,
 		ToolName:          toolName,
 		Arguments:         args,
 		RedactedArguments: security.RedactJSON(args),
 		RiskLevel:         string(decision.Risk),
 		PolicyDecision:    string(decision.Decision),
-		IdempotencyKey:    "ig-" + run.ID[:8] + "-" + toolName,
+		// Stable per-tool-call idempotency identity: persisted BEFORE
+		// submission, reused verbatim across retries/recovery so DurableMCP
+		// never creates a second execution for the same logical call.
+		IdempotencyKey: "incidentgraph:" + callID,
 	}
-	if err := r.deps.Runs.CreateToolCall(ctx, tc); err != nil {
+	if err := r.deps.Runs.CreateToolCallFenced(ctx, lease, tc); err != nil {
+		if errors.Is(err, runs.ErrStaleLease) {
+			return &staleLeaseError{runID: run.ID}
+		}
 		return err
 	}
 	_ = r.deps.Runs.ToolCallEvent(ctx, tc.ID, "requested", map[string]any{"tool": toolName})
@@ -272,7 +283,15 @@ func (r *NativeRunner) proposeAndExecute(ctx context.Context, run *model.AgentRu
 		if err != nil {
 			return err
 		}
-		_ = r.deps.Runs.FinishRun(ctx, run.ID, model.RunNeedsApproval, "", "")
+		// Pause is a NON-terminal transition: needs_approval with completed_at
+		// NULL and the lease released. The run resumes via DecideApprovalTx ->
+		// normal fenced claim path.
+		if err := r.deps.Runs.PauseForApproval(ctx, lease); err != nil {
+			if errors.Is(err, runs.ErrStaleLease) {
+				return &staleLeaseError{runID: run.ID}
+			}
+			return err
+		}
 		r.emit(ctx, run.ID, "approval_required", map[string]any{
 			"approval_id": apprID, "tool_call_id": tc.ID, "tool": toolName, "risk": string(decision.Risk)})
 		return &pausedError{}

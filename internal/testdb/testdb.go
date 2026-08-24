@@ -87,3 +87,47 @@ func withDBName(raw, name string) (string, error) {
 	u.Path = "/" + name
 	return u.String(), nil
 }
+
+// DSNForRole builds a DSN for the given role on the same test database, so
+// tests can exercise restricted-privilege connections.
+func DSNForRole(t *testing.T, user, password string) string {
+	t.Helper()
+	base := os.Getenv("IG_TEST_DATABASE_URL")
+	if base == "" {
+		t.Skip("IG_TEST_DATABASE_URL not set; skipping integration test")
+	}
+	return withUserPassword(base, user, password)
+}
+
+func withUserPassword(raw, user, password string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	u.User = url.UserPassword(user, password)
+	return u.String()
+}
+
+// ConnectPool opens a pool for an arbitrary DSN (test helper).
+func ConnectPool(t *testing.T, dsn string) *pgxpool.Pool {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatalf("connect %s: %v", sanitize(dsn), err)
+	}
+	if err := pool.Ping(ctx); err != nil {
+		t.Fatalf("ping: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	return pool
+}
+
+func sanitize(dsn string) string {
+	if i := strings.Index(dsn, "@"); i >= 0 && strings.Contains(dsn, "://") {
+		schemeEnd := strings.Index(dsn, "://") + 3
+		return dsn[:schemeEnd] + "***@" + dsn[i+1:]
+	}
+	return dsn
+}

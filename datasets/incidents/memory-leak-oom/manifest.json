@@ -1,0 +1,40 @@
+{
+  "incident": {
+    "slug": "memory-leak-oom",
+    "title": "Inventory pods restart nightly",
+    "service": "inventory",
+    "severity": "sev2"
+  },
+  "files": [
+    {
+      "path": "logs/inventory/2026-08-23.log",
+      "source_type": "log",
+      "file": "service.log",
+      "trust": "tool_output"
+    },
+    {
+      "path": "metrics/inventory/rss_mb",
+      "source_type": "metrics",
+      "file": "metrics_symptom.json",
+      "trust": "tool_output"
+    },
+    {
+      "path": "metrics/inventory/p99_latency_ms",
+      "source_type": "metrics",
+      "file": "metrics_p99.json",
+      "trust": "tool_output"
+    },
+    {
+      "path": "deployments/inventory/ea55bb99",
+      "source_type": "deployment",
+      "file": "deployment.txt",
+      "trust": "internal_document"
+    },
+    {
+      "path": "commits/inventory/ea55bb99",
+      "source_type": "git_diff",
+      "file": "diff.txt",
+      "trust": "internal_document"
+    }
+  ]
+}

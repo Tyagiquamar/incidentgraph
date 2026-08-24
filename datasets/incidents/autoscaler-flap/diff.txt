@@ -1,0 +1,1 @@
+commit fe21dc10 hpa.stabilization_window = 0 # flapping between min and max replicas

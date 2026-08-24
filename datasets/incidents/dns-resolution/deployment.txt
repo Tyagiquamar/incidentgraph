@@ -1,0 +1,1 @@
+deployment service=inventory commit c1d2e3f4 DNS record TTL change 300->86400 during db failover

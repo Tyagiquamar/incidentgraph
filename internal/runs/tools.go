@@ -28,6 +28,32 @@ func (s *Store) CreateToolCall(ctx context.Context, tc model.ToolCall) error {
 	return err
 }
 
+// CreateToolCallFenced inserts a proposed tool call only while the caller owns
+// the run's current lease generation — a stale driver cannot create new work
+// on a run it no longer drives.
+func (s *Store) CreateToolCallFenced(ctx context.Context, lease Lease, tc model.ToolCall) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var owner string
+	var gen int64
+	err = tx.QueryRow(ctx,
+		`SELECT lease_owner, lease_generation FROM agent_runs WHERE id=$1 FOR SHARE`, lease.RunID).
+		Scan(&owner, &gen)
+	if err != nil {
+		return err
+	}
+	if owner != lease.Owner || gen != lease.Generation {
+		return ErrStaleLease
+	}
+	if err := s.CreateToolCall(ctx, tc); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
 func (s *Store) UpdateToolCallPolicy(ctx context.Context, id, decision, status string) error {
 	_, err := s.pool.Exec(ctx, `UPDATE tool_calls SET policy_decision=$2, status=$3 WHERE id=$1`, id, decision, status)
 	return err
@@ -192,11 +218,19 @@ func (s *Store) LatestApproval(ctx context.Context, runID string) (*model.Approv
 // ---------------------------------------------------------------- model usage
 
 func (s *Store) RecordUsage(ctx context.Context, runID string, rec llm.UsageRecord) error {
+	source := rec.UsageSource
+	if source == "" {
+		if rec.InputTokens > 0 || rec.OutputTokens > 0 {
+			source = "provider"
+		} else {
+			source = "estimated"
+		}
+	}
 	_, err := s.pool.Exec(ctx, `INSERT INTO model_usage
-	    (run_id, provider, model, task_type, input_tokens, output_tokens, latency_ms, estimated_cost, status, retry_count, error)
-	    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+	    (run_id, provider, model, task_type, input_tokens, output_tokens, latency_ms, estimated_cost, status, retry_count, error, usage_source)
+	    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
 		nullIfEmpty(runID), rec.Provider, rec.Model, string(rec.TaskType), rec.InputTokens,
-		rec.OutputTokens, rec.LatencyMS, rec.CostCents, orDefault(rec.Status, "ok"), rec.RetryCount, rec.Error)
+		rec.OutputTokens, rec.LatencyMS, rec.CostCents, orDefault(rec.Status, "ok"), rec.RetryCount, rec.Error, source)
 	if err != nil {
 		return err
 	}

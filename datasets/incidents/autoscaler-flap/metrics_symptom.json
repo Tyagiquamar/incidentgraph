@@ -1,0 +1,22 @@
+{
+ "series": "replica_count",
+ "points": [
+  {
+   "t": "14:00",
+   "v": 8
+  },
+  {
+   "t": "14:10",
+   "v": 26
+  },
+  {
+   "t": "14:20",
+   "v": 9
+  },
+  {
+   "t": "14:30",
+   "v": 28
+  }
+ ],
+ "note": "autoscaler flapping between min and max replicas due to metric feedback delay: scale-up arrives after traffic passed and scale-down triggers mid-spike because the config change reduced stabilization window to zero."
+}

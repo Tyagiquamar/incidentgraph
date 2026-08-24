@@ -1,7 +1,16 @@
-# IncidentGraph full stack. Default profile: Postgres(+pgvector) only.
-# Optional profiles keep integrations out of the default dev loop:
-#   docker compose --profile hermes up      # Hermes adapter backend
-#   docker compose --profile openclaw up    # OpenClaw messaging gateway
+# IncidentGraph stack.
+#
+# DEFAULT profile = the real dev stack: postgres(pgvector) + api + worker +
+# mcp-server. Everything starts with `docker compose up -d`.
+#
+# External integrations are opt-in via profiles and REQUIRE you to supply a
+# real image (IncidentGraph does not ship or fake third-party services):
+#   HERMES_IMAGE=... docker compose --profile hermes up -d
+#   OPENCLAW_IMAGE=... docker compose --profile openclaw up -d
+#   DURABLEMCP_IMAGE=... docker compose --profile durablemcp up -d
+#
+# MCP is wired on ONE canonical port: 8091 (api on 8090). Hermes receives
+# INCIDENTGRAPH_MCP_URL=http://mcp-server:8091/mcp plus IG_MCP_TOKEN.
 services:
   postgres:
     image: pgvector/pgvector:pg17
@@ -26,9 +35,13 @@ services:
     command: ["/app/api"]
     environment:
       IG_DATABASE_URL: postgres://incidentgraph:incidentgraph@postgres:5432/incidentgraph?sslmode=disable
+      IG_READONLY_DATABASE_URL: postgres://incidentgraph:incidentgraph@postgres:5432/incidentgraph?sslmode=disable
       IG_HTTP_ADDR: ":8090"
       IG_LLM_PROVIDER: mock
       IG_DURABLEMCP_URL: http://durablemcp:8080
+      IG_RUN_LEASE_TTL: 60s
+      IG_MCP_AUTH_ENABLED: "true"
+      IG_MCP_TOKEN: ${IG_MCP_TOKEN:-dev-mcp-token}
     ports:
       - "8090:8090"
     depends_on:
@@ -44,6 +57,7 @@ services:
       IG_DATABASE_URL: postgres://incidentgraph:incidentgraph@postgres:5432/incidentgraph?sslmode=disable
       IG_LLM_PROVIDER: mock
       IG_DURABLEMCP_URL: http://durablemcp:8080
+      IG_RUN_LEASE_TTL: 60s
     depends_on:
       postgres:
         condition: service_healthy
@@ -52,39 +66,24 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile
-    command: ["/app/mcp-server"]
+    command: ["/app/mcp-server", "-addr", ":8091"]
     environment:
       IG_DATABASE_URL: postgres://incidentgraph:incidentgraph@postgres:5432/incidentgraph?sslmode=disable
+      IG_MCP_AUTH_ENABLED: "true"
+      IG_MCP_TOKEN: ${IG_MCP_TOKEN:-dev-mcp-token}
     ports:
       - "8091:8091"
+    depends_on:
+      postgres:
+        condition: service_healthy
 
-  durablemcp:
-    # External DurableMCP service (not forked): supply your image/ref here.
-    # When absent, side-effecting tool calls fail explicitly as degraded.
-    image: ghcr.io/example/durablemcp:latest
-    profiles: ["durablemcp"]
-    ports:
-      - "8080:8080"
-
-  hermes:
-    # Optional Hermes agent engine. IncidentGraph remains the runtime of
-    # record; hermes only drives investigations when explicitly selected.
-    image: ghcr.io/example/hermes-agent:latest
-    profiles: ["hermes"]
-    environment:
-      INCIDENTGRAPH_MCP_URL: http://mcp-server:8091/mcp
-    ports:
-      - "8123:8123"
-
-  openclaw:
-    # Optional messaging ingress (Slack/Telegram). Never required.
-    image: ghcr.io/example/openclaw-gateway:latest
-    profiles: ["openclaw"]
-    environment:
-      INCIDENTGRAPH_API_URL: http://api:8090
-      IG_OPENCLAW_VERIFY_TOKEN: ${IG_OPENCLAW_VERIFY_TOKEN:-}
-    ports:
-      - "8124:8124"
+  # ---------------------------------------------------------------- optional
+  # External integrations live in docker/compose.integrations.yml because
+  # IncidentGraph does not ship third-party images. Enable with:
+  #
+  #   HERMES_IMAGE=<image> OPENCLAW_IMAGE=<image> DURABLEMCP_IMAGE=<image> \
+  #     IG_OPENCLAW_VERIFY_TOKEN=<token> \
+  #     docker compose -f docker-compose.yml -f docker/compose.integrations.yml up -d
 
 volumes:
   pgdata:

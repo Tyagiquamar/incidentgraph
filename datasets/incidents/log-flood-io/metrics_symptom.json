@@ -1,0 +1,18 @@
+{
+ "series": "log_write_mbps",
+ "points": [
+  {
+   "t": "15:00",
+   "v": 4
+  },
+  {
+   "t": "17:00",
+   "v": 120
+  },
+  {
+   "t": "19:00",
+   "v": 130
+  }
+ ],
+ "note": "debug level logging enabled by default in the release flooded disk with log writes; iowait spiked matching bursts and the volume filled during peak hours (log flood saturated io)."
+}

@@ -67,13 +67,13 @@ func seedCorpus(t *testing.T, deps *Deps) {
 	t.Helper()
 	ctx := context.Background()
 	docs := []struct{ path, typ, body string }{
-		{"runbooks/checkout.md", "runbook",
+		{"runbooks/checkout/high-latency.md", "runbook",
 			"# Checkout runbook\n\n## High latency\n\nIf checkout latency rises, inspect the database connection pool.\nA pool exhausted state shows acquire timeouts and elevated db wait."},
 		{"deployments/checkout/c9f17a2d.txt", "deployment",
 			"deployment service=checkout commit c9f17a2d changed POOL_SIZE from 40 to 5. Pool size regression suspected."},
-		{"logs/checkout.log", "log",
+		{"logs/checkout/2026-08-23.log", "log",
 			"2026-08-23T10:00:00Z checkout ERROR connection pool exhausted acquire timeout after 5s db wait spiked\n2026-08-23T10:01:00Z checkout WARN pool_size=5 all connections in use"},
-		{"metrics/db_wait.json", "metrics",
+		{"metrics/checkout/db_wait.json", "metrics",
 			`{"series":"db_wait_ms","service":"checkout","points":[["10:00",2100],["10:05",2600]],"note":"db wait increased after deployment; redis latency remained stable"}`},
 	}
 	for _, d := range docs {
@@ -192,15 +192,23 @@ type fakeDurable struct {
 	srv    *httptest.Server
 	client *durablemcp.Client
 
-	mu     sync.Mutex
-	seq    int
-	execs  map[string]*durablemcp.Execution
-	events map[string][]durablemcp.Event
-	calls  int
+	mu        sync.Mutex
+	seq       int
+	execs     map[string]*durablemcp.Execution
+	events    map[string][]durablemcp.Event
+	calls     int
+	byIdemKey map[string]string // idempotency key -> execution id (dedup)
+}
+
+func (f *fakeDurable) submissionCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.calls
 }
 
 func newFakeDurable(t *testing.T) *fakeDurable {
-	f := &fakeDurable{execs: map[string]*durablemcp.Execution{}, events: map[string][]durablemcp.Event{}}
+	f := &fakeDurable{execs: map[string]*durablemcp.Execution{}, events: map[string][]durablemcp.Event{},
+		byIdemKey: map[string]string{}}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /mcp", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
@@ -223,6 +231,13 @@ func newFakeDurable(t *testing.T) *fakeDurable {
 			}
 			_ = json.Unmarshal(req.Params, &p)
 			f.mu.Lock()
+			if id, ok := f.byIdemKey[p.Meta.IdempotencyKey]; ok {
+				dup := f.execs[id]
+				f.mu.Unlock()
+				writeRPC(w, req.ID, durablemcp.SubmitResult{ExecutionID: id, Status: "queued", Duplicate: true})
+				_ = dup
+				return
+			}
 			f.calls++
 			f.seq++
 			id := fmt.Sprintf("exec-%d", f.seq)
@@ -233,6 +248,7 @@ func newFakeDurable(t *testing.T) *fakeDurable {
 				Result: json.RawMessage(`{"status":"restarted","service":"checkout"}`),
 			}
 			f.execs[id] = exec
+			f.byIdemKey[p.Meta.IdempotencyKey] = id
 			f.events[id] = []durablemcp.Event{
 				{ID: 1, ExecutionID: id, EventType: "started"},
 				{ID: 2, ExecutionID: id, EventType: "completed"},
@@ -310,11 +326,16 @@ func TestApprovalPauseApproveResumeExecutesDurably(t *testing.T) {
 		t.Fatalf("policy did not gate write tool: risk=%s decision=%s", tc.RiskLevel, tc.PolicyDecision)
 	}
 
-	// Human approves; resume continues exactly from persisted state.
-	if err := store.DecideApproval(context.Background(), pa.ID, "approved", "ops-oncall"); err != nil {
+	// Human approves; the atomic decision transitions the run back to
+	// running (no lease) and resume continues exactly from persisted state.
+	if _, err := store.DecideApprovalTx(context.Background(), pa.ID, "approved", "ops-oncall"); err != nil {
 		t.Fatalf("decide: %v", err)
 	}
-	_ = store.UpdateToolCallPolicy(context.Background(), tc.ID, "allowed", "approved")
+	// Pause semantics: needs_approval must never carry completed_at.
+	paRun, _ := store.GetRun(context.Background(), runID)
+	if paRun.CompletedAt != nil {
+		t.Errorf("paused run has completed_at set; needs_approval is not terminal")
+	}
 	if err := runner.Resume(context.Background(), runID); err != nil {
 		t.Fatalf("resume: %v", err)
 	}
@@ -368,7 +389,7 @@ func TestApprovalRejectDeniesExecution(t *testing.T) {
 	}
 
 	pa, _ := store.PendingApproval(context.Background(), runID)
-	if err := store.DecideApproval(context.Background(), pa.ID, "rejected", "ops-oncall"); err != nil {
+	if _, err := store.DecideApprovalTx(context.Background(), pa.ID, "rejected", "ops-oncall"); err != nil {
 		t.Fatalf("reject: %v", err)
 	}
 	if err := runner.Resume(context.Background(), runID); err != nil {
@@ -402,8 +423,7 @@ func TestDegradedWhenDurableUnavailable(t *testing.T) {
 	<-done
 
 	pa, _ := store.PendingApproval(context.Background(), runID)
-	_ = store.DecideApproval(context.Background(), pa.ID, "approved", "ops-oncall")
-	_ = store.UpdateToolCallPolicy(context.Background(), *pa.ToolCallID, "allowed", "approved")
+	_, _ = store.DecideApprovalTx(context.Background(), pa.ID, "approved", "ops-oncall")
 	if err := runner.Resume(context.Background(), runID); err != nil {
 		t.Fatalf("resume: %v", err)
 	}

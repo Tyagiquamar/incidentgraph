@@ -1,0 +1,40 @@
+{
+  "incident": {
+    "slug": "schema-drift-read",
+    "title": "Analytics reads fail with unknown column",
+    "service": "orders",
+    "severity": "sev4"
+  },
+  "files": [
+    {
+      "path": "logs/orders/2026-08-23.log",
+      "source_type": "log",
+      "file": "service.log",
+      "trust": "tool_output"
+    },
+    {
+      "path": "metrics/orders/replica_lag_seconds",
+      "source_type": "metrics",
+      "file": "metrics_symptom.json",
+      "trust": "tool_output"
+    },
+    {
+      "path": "metrics/orders/p99_latency_ms",
+      "source_type": "metrics",
+      "file": "metrics_p99.json",
+      "trust": "tool_output"
+    },
+    {
+      "path": "deployments/orders/cc31dd41",
+      "source_type": "deployment",
+      "file": "deployment.txt",
+      "trust": "internal_document"
+    },
+    {
+      "path": "commits/orders/cc31dd41",
+      "source_type": "git_diff",
+      "file": "diff.txt",
+      "trust": "internal_document"
+    }
+  ]
+}

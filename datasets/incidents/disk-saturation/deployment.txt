@@ -1,0 +1,1 @@
+deployment service=orders commit 7a1b9c4d enabled debug WAL archiving every 30s (config change)

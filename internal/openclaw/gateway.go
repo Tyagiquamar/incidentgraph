@@ -77,8 +77,15 @@ func (g *Gateway) HandleCommand(ctx context.Context, channel, workspace, userID,
 		return g.reply(channel, "Usage: /incident <investigate|evidence|approve|reject|cancel> [args]")
 	}
 	cmd := &Command{Principal: p}
+
+	// Role model (fail closed): viewers are read-only; state-changing actions
+	// (investigate/cancel) and approval decisions require operator or admin.
+	isViewerOnly := strings.EqualFold(p.Role, "viewer")
 	switch strings.ToLower(fields[1]) {
 	case "investigate":
+		if isViewerOnly {
+			return g.reply(channel, "Viewers have read-only access; investigating requires operator role.")
+		}
 		if len(fields) < 3 {
 			return g.reply(channel, "Usage: /incident investigate <description>")
 		}
@@ -90,8 +97,11 @@ func (g *Gateway) HandleCommand(ctx context.Context, channel, workspace, userID,
 			cmd.Argument = fields[2]
 		}
 	case "approve", "reject":
+		if isViewerOnly {
+			return g.reply(channel, "Viewers cannot approve or reject actions.")
+		}
 		if p.Role != "operator" && p.Role != "admin" {
-			return g.reply(channel, "Only operators/admins may approve or reject actions.")
+			return g.reply(channel, fmt.Sprintf("Role %q may not approve/reject.", p.Role))
 		}
 		if len(fields) < 3 {
 			return g.reply(channel, fmt.Sprintf("Usage: /incident %s <approval_id>", fields[1]))
@@ -99,6 +109,9 @@ func (g *Gateway) HandleCommand(ctx context.Context, channel, workspace, userID,
 		cmd.Action = strings.ToLower(fields[1])
 		cmd.Argument = fields[2]
 	case "cancel":
+		if isViewerOnly {
+			return g.reply(channel, "Viewers cannot cancel runs.")
+		}
 		cmd.Action = "cancel"
 		if len(fields) >= 3 {
 			cmd.Argument = fields[2]

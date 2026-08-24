@@ -1,0 +1,40 @@
+{
+  "incident": {
+    "slug": "autoscaler-flap",
+    "title": "Checkout capacity oscillates wildly",
+    "service": "checkout",
+    "severity": "sev3"
+  },
+  "files": [
+    {
+      "path": "logs/checkout/2026-08-23.log",
+      "source_type": "log",
+      "file": "service.log",
+      "trust": "tool_output"
+    },
+    {
+      "path": "metrics/checkout/replica_count",
+      "source_type": "metrics",
+      "file": "metrics_symptom.json",
+      "trust": "tool_output"
+    },
+    {
+      "path": "metrics/checkout/p99_latency_ms",
+      "source_type": "metrics",
+      "file": "metrics_p99.json",
+      "trust": "tool_output"
+    },
+    {
+      "path": "deployments/checkout/fe21dc10",
+      "source_type": "deployment",
+      "file": "deployment.txt",
+      "trust": "internal_document"
+    },
+    {
+      "path": "commits/checkout/fe21dc10",
+      "source_type": "git_diff",
+      "file": "diff.txt",
+      "trust": "internal_document"
+    }
+  ]
+}

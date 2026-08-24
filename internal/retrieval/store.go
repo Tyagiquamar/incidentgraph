@@ -23,6 +23,15 @@ type Store struct {
 // Embedding returns the configured embedder.
 func (s *Store) Embedding() Embedder { return s.Embedder }
 
+// embedQuery embeds a query with explicit error propagation.
+func (s *Store) embedQuery(ctx context.Context, q string) (string, error) {
+	vec, err := s.Embedder.Embed(ctx, q)
+	if err != nil {
+		return "", fmt.Errorf("embed query: %w", err)
+	}
+	return VectorLiteral(vec), nil
+}
+
 func NewStore(pool *pgxpool.Pool, emb Embedder) *Store {
 	return &Store{Pool: pool, Embedder: emb}
 }
@@ -64,9 +73,11 @@ func (s *Store) Ingest(ctx context.Context, in DocumentInput) (string, int, erro
 	docID = ids.New()
 	metaJSON, _ := json.Marshal(orEmptyMap(in.Metadata))
 	if _, err := s.Pool.Exec(ctx, `INSERT INTO documents
-		(id, source_type, service, path, title, trust_level, content_hash, raw_content, metadata)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-		docID, in.SourceType, in.Service, in.Path, in.Title, string(in.TrustLevel), docHash, in.RawContent, metaJSON); err != nil {
+		(id, source_type, service, path, title, trust_level, content_hash, raw_content, metadata,
+		 embedding_provider, embedding_model, embedding_dim)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+		docID, in.SourceType, in.Service, in.Path, in.Title, string(in.TrustLevel), docHash, in.RawContent, metaJSON,
+		s.Embedder.Name(), s.Embedder.Name(), s.Embedder.Dim()); err != nil {
 		return "", 0, fmt.Errorf("insert document: %w", err)
 	}
 	chunks := ChunkDocument(in.SourceType, NormalizeText(in.RawContent), ChunkOptions{ServiceName: in.Service})
@@ -81,7 +92,10 @@ func (s *Store) Ingest(ctx context.Context, in DocumentInput) (string, int, erro
 			"trust_level": string(in.TrustLevel),
 			"title":       in.Title,
 		}, ch.Metadata))
-		vec := s.Embedder.Embed(ch.Content)
+		vec, err := s.Embedder.Embed(ctx, ch.Content)
+		if err != nil {
+			return docID, len(chunks), fmt.Errorf("embed chunk %d of %s: %w", ch.ChunkIndex, in.Path, err)
+		}
 		if _, err := s.Pool.Exec(ctx, `INSERT INTO document_chunks
 			(id, document_id, chunk_index, content, content_hash, token_count, embedding, metadata)
 			VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
@@ -149,8 +163,43 @@ func (s *Store) SearchLexical(ctx context.Context, q string, limit int) ([]model
 	return out, rows.Err()
 }
 
+// checkEmbeddingIdentity refuses to query a corpus that was indexed with a
+// different embedding provider/model/dimension than the current query embedder.
+// Mixing embedding spaces silently produces garbage similarity scores.
+func (s *Store) checkEmbeddingIdentity(ctx context.Context) error {
+	rows, err := s.Pool.Query(ctx,
+		`SELECT DISTINCT embedding_provider, embedding_model, embedding_dim FROM documents LIMIT 5`)
+	if err != nil {
+		return nil // identity columns absent (old schema): nothing to verify
+	}
+	defer rows.Close()
+	var providers []string
+	for rows.Next() {
+		var prov, mdl string
+		var dim int
+		if err := rows.Scan(&prov, &mdl, &dim); err != nil {
+			return nil
+		}
+		if dim != s.Embedder.Dim() || prov != s.Embedder.Name() {
+			providers = append(providers, fmt.Sprintf("%s/%s/dim%d", prov, mdl, dim))
+		}
+	}
+	if len(providers) > 0 {
+		return fmt.Errorf(
+			"embedding identity mismatch: corpus indexed with %v but queries use %s/dim%d; reindex the corpus before searching",
+			providers, s.Embedder.Name(), s.Embedder.Dim())
+	}
+	return nil
+}
+
 func (s *Store) SearchVector(ctx context.Context, q string, limit int) ([]model.RetrievalResult, error) {
-	qv := VectorLiteral(s.Embedder.Embed(q))
+	if err := s.checkEmbeddingIdentity(ctx); err != nil {
+		return nil, err
+	}
+	qv, err := s.embedQuery(ctx, q)
+	if err != nil {
+		return nil, err
+	}
 	rows, err := s.Pool.Query(ctx, `
 		SELECT c.id, c.document_id, c.content,
 		       jsonb_build_object('source_type', d.source_type, 'service', d.service,

@@ -1,0 +1,40 @@
+{
+  "incident": {
+    "slug": "blue-green-cutover",
+    "title": "Errors burst during traffic switch",
+    "service": "checkout",
+    "severity": "sev2"
+  },
+  "files": [
+    {
+      "path": "logs/checkout/2026-08-23.log",
+      "source_type": "log",
+      "file": "service.log",
+      "trust": "tool_output"
+    },
+    {
+      "path": "metrics/checkout/connection_reset_rate",
+      "source_type": "metrics",
+      "file": "metrics_symptom.json",
+      "trust": "tool_output"
+    },
+    {
+      "path": "metrics/checkout/p99_latency_ms",
+      "source_type": "metrics",
+      "file": "metrics_p99.json",
+      "trust": "tool_output"
+    },
+    {
+      "path": "deployments/checkout/ef01ab23",
+      "source_type": "deployment",
+      "file": "deployment.txt",
+      "trust": "internal_document"
+    },
+    {
+      "path": "commits/checkout/ef01ab23",
+      "source_type": "git_diff",
+      "file": "diff.txt",
+      "trust": "internal_document"
+    }
+  ]
+}

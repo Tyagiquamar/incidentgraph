@@ -1,0 +1,18 @@
+{
+ "series": "dns_failures_per_min",
+ "points": [
+  {
+   "t": "07:00",
+   "v": 0
+  },
+  {
+   "t": "07:30",
+   "v": 120
+  },
+  {
+   "t": "08:00",
+   "v": 0
+  }
+ ],
+ "note": "NXDOMAIN resolution failures burst after a DNS record TTL change; stale record cached by resolvers kept returning the retired IP; connection errors resolved after cache flush."
+}

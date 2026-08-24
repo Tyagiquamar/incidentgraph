@@ -1,0 +1,40 @@
+{
+  "incident": {
+    "slug": "dependency-circuit-flap",
+    "title": "Circuit breaker flaps between states",
+    "service": "payments",
+    "severity": "sev3"
+  },
+  "files": [
+    {
+      "path": "logs/payments/2026-08-23.log",
+      "source_type": "log",
+      "file": "service.log",
+      "trust": "tool_output"
+    },
+    {
+      "path": "metrics/payments/breaker_transitions_per_min",
+      "source_type": "metrics",
+      "file": "metrics_symptom.json",
+      "trust": "tool_output"
+    },
+    {
+      "path": "metrics/payments/p99_latency_ms",
+      "source_type": "metrics",
+      "file": "metrics_p99.json",
+      "trust": "tool_output"
+    },
+    {
+      "path": "deployments/payments/cb77aa21",
+      "source_type": "deployment",
+      "file": "deployment.txt",
+      "trust": "internal_document"
+    },
+    {
+      "path": "commits/payments/cb77aa21",
+      "source_type": "git_diff",
+      "file": "diff.txt",
+      "trust": "internal_document"
+    }
+  ]
+}

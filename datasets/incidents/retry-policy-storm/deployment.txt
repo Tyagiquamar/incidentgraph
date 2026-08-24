@@ -1,0 +1,1 @@
+deployment service=notifications commit bb99cc11 upgraded notification SDK (config change: retry defaults)

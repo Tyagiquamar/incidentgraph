@@ -71,8 +71,11 @@ func (s *Store) Working(ctx context.Context, runID string) ([]Item, error) {
 // PutEpisodic records a completed investigation trajectory for future runs.
 func (s *Store) PutEpisodic(ctx context.Context, incidentID, key, content string, metadata map[string]any) error {
 	meta, _ := json.Marshal(metadata)
-	vec := s.emb.Embed(content)
-	_, err := s.pool.Exec(ctx, `INSERT INTO memories (id, kind, incident_id, key, content, metadata, embedding)
+	vec, err := s.emb.Embed(ctx, content)
+	if err != nil {
+		return fmt.Errorf("embed memory: %w", err)
+	}
+	_, err = s.pool.Exec(ctx, `INSERT INTO memories (id, kind, incident_id, key, content, metadata, embedding)
 	    VALUES ($1,'episodic',$2,$3,$4,$5,$6::vector)`,
 		model.New(), incidentID, key, content, meta, retrieval.VectorLiteral(vec))
 	return err
@@ -104,8 +107,11 @@ func (s *Store) PutSemantic(ctx context.Context, incidentID, key, content string
 
 func (s *Store) PutEpisodicKind(ctx context.Context, kind, incidentID, key, content string, metadata map[string]any) error {
 	meta, _ := json.Marshal(metadata)
-	vec := s.emb.Embed(content)
-	_, err := s.pool.Exec(ctx, fmt.Sprintf(`INSERT INTO memories (id, kind, incident_id, key, content, metadata, embedding)
+	vec, err := s.emb.Embed(ctx, content)
+	if err != nil {
+		return fmt.Errorf("embed memory: %w", err)
+	}
+	_, err = s.pool.Exec(ctx, fmt.Sprintf(`INSERT INTO memories (id, kind, incident_id, key, content, metadata, embedding)
 	    VALUES ($1,'%s',$2,$3,$4,$5,$6::vector)`, kind),
 		model.New(), incidentID, key, content, meta, retrieval.VectorLiteral(vec))
 	return err
@@ -113,7 +119,11 @@ func (s *Store) PutEpisodicKind(ctx context.Context, kind, incidentID, key, cont
 
 // SemanticSearch retrieves the top-k similar memories via pgvector cosine.
 func (s *Store) SemanticSearch(ctx context.Context, query string, k int) ([]Item, error) {
-	vec := retrieval.VectorLiteral(s.emb.Embed(query))
+	qv, err := s.emb.Embed(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("embed query: %w", err)
+	}
+	vec := retrieval.VectorLiteral(qv)
 	rows, err := s.pool.Query(ctx, `SELECT id, kind, run_id, incident_id, key, content, metadata,
 	        1 - (embedding <=> $1::vector) AS score
 	    FROM memories WHERE embedding IS NOT NULL AND kind IN ('episodic','semantic')

@@ -3,14 +3,15 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"time"
 
-	"github.com/incidentgraph/incidentgraph/internal/agent"
 	"github.com/incidentgraph/incidentgraph/internal/model"
 	"github.com/incidentgraph/incidentgraph/internal/observability"
+	"github.com/incidentgraph/incidentgraph/internal/runs"
 )
 
 func (s *Server) createIncident(w http.ResponseWriter, r *http.Request) {
@@ -59,6 +60,11 @@ func (s *Server) getIncident(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, map[string]any{"incident": inc, "runs": runList})
 }
 
+// acceptedBackends are the backends this build genuinely implements.
+// "native-v2" is intentionally NOT accepted: no separate versioned native
+// implementation exists, and advertising one would be dishonest.
+var acceptedBackends = map[string]bool{"native-v1": true, "hermes": true}
+
 // startRun creates an AgentRun and executes it asynchronously.
 func (s *Server) startRun(w http.ResponseWriter, r *http.Request) {
 	incidentID := r.PathValue("id")
@@ -77,22 +83,20 @@ func (s *Server) startRun(w http.ResponseWriter, r *http.Request) {
 	if backend == "" {
 		backend = "native-v1"
 	}
-	if backend != "native-v1" && backend != "native-v2" && backend != "hermes" {
-		s.err(w, http.StatusBadRequest, `backend must be one of native-v1|native-v2|hermes`)
+	if !acceptedBackends[backend] {
+		s.err(w, http.StatusBadRequest, `unknown backend; supported: native-v1|hermes`)
 		return
 	}
-	var selected agent.Runner = s.runner
-	if backend == "hermes" {
-		// honest selection: never silently run a different engine than asked for
-		if s.hermes == nil {
-			s.err(w, http.StatusServiceUnavailable, `hermes backend not configured (set IG_HERMES_ENABLED=1 and IG_HERMES_URL)`)
-			return
-		}
-		if !s.hermesHealthy(r) {
-			s.err(w, http.StatusServiceUnavailable, `hermes backend unreachable; refusing to silently substitute the native engine`)
-			return
-		}
-		selected = s.hermes
+	// honest selection: never silently run a different engine than asked for
+	selected, ok := s.ForBackend(backend)
+	if !ok {
+		s.err(w, http.StatusServiceUnavailable,
+			fmt.Sprintf("backend %q is not configured on this deployment", backend))
+		return
+	}
+	if backend == "hermes" && !s.hermesHealthy(r) {
+		s.err(w, http.StatusServiceUnavailable, `hermes backend unreachable; refusing to silently substitute the native engine`)
+		return
 	}
 	run := model.AgentRun{
 		ID:           model.New(),
@@ -108,13 +112,8 @@ func (s *Server) startRun(w http.ResponseWriter, r *http.Request) {
 	}
 	go func() {
 		bg := contextDetach()
-		// lease before driving so a concurrent worker cannot double-drive
-		claimed, err := s.runs.ClaimRun(bg, run.ID, 10*time.Minute)
-		if err != nil || !claimed {
-			s.log.Warn("run not claimed for driving", observability.F{"run_id": run.ID, "error": errString(err)})
-			return
-		}
-		defer func() { _ = s.runs.ReleaseLease(bg, run.ID) }()
+		// The runner acquires its own fenced lease (single ownership path);
+		// if a worker claimed the run first this fails cleanly and is logged.
 		if err := selected.Start(bg, run.ID); err != nil {
 			s.log.Error("run failed", observability.F{"run_id": run.ID, "backend": backend, "error": err.Error()})
 		}
@@ -125,11 +124,14 @@ func (s *Server) startRun(w http.ResponseWriter, r *http.Request) {
 func (s *Server) hermesHealthy(r *http.Request) bool {
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
-	type healthier interface {
-		Healthy(ctx context.Context) bool
+	h, ok := s.ForBackend("hermes")
+	if !ok {
+		return false
 	}
-	if h, ok := s.hermes.(healthier); ok {
-		return h.Healthy(ctx)
+	if hh, ok := h.(interface {
+		Healthy(ctx context.Context) bool
+	}); ok {
+		return hh.Healthy(ctx)
 	}
 	return true // runner without a health probe: selection stays honest via Start-time failure
 }
@@ -231,11 +233,13 @@ func (s *Server) runModelUsage(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) cancelRun(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if _, err := s.runs.GetRun(r.Context(), id); err != nil {
-		s.err(w, http.StatusNotFound, "run not found")
+	// Backend-aware dispatch: cancel goes to the engine that owns the run.
+	runner, err := s.backendForRun(r.Context(), id)
+	if err != nil {
+		s.err(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := s.runner.Cancel(contextDetach(), id); err != nil {
+	if err := runner.Cancel(contextDetach(), id); err != nil {
 		s.err(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -251,6 +255,10 @@ type decisionBody struct {
 func (s *Server) approveApproval(w http.ResponseWriter, r *http.Request) { s.decide(w, r, true) }
 func (s *Server) rejectApproval(w http.ResponseWriter, r *http.Request)  { s.decide(w, r, false) }
 
+// decide persists the human decision ATOMICALLY (DecideApprovalTx): approval
+// row + tool call + run transition needs_approval→running in one transaction,
+// leaving the run claimable through the normal fenced-lease scheduler. The
+// runner that picks it up is resolved by the RUN'S persisted backend.
 func (s *Server) decide(w http.ResponseWriter, r *http.Request, approve bool) {
 	id := r.PathValue("id")
 	appr, err := s.runs.GetApproval(r.Context(), id)
@@ -274,24 +282,29 @@ func (s *Server) decide(w http.ResponseWriter, r *http.Request, approve bool) {
 	if approve {
 		status = "approved"
 	}
-	if err := s.runs.DecideApproval(r.Context(), id, status, decidedBy); err != nil {
-		s.err(w, http.StatusInternalServerError, err.Error())
+	updated, txErr := s.runs.DecideApprovalTx(r.Context(), id, status, decidedBy)
+	if txErr != nil {
+		if errors.Is(txErr, runs.ErrApprovalAlreadyDecided) {
+			s.err(w, http.StatusConflict, fmt.Sprintf("approval already %s", updated.Status))
+			return
+		}
+		s.err(w, http.StatusInternalServerError, txErr.Error())
 		return
 	}
-	updated, _ := s.runs.GetApproval(r.Context(), id)
 
-	if !approve {
-		if appr.ToolCallID != nil {
-			_ = s.runs.CompleteToolCall(r.Context(), *appr.ToolCallID, "denied", "", 0, "rejected by operator")
-		}
-	} else if appr.ToolCallID != nil {
-		_ = s.runs.UpdateToolCallPolicy(r.Context(), *appr.ToolCallID, "allowed", "approved")
-	}
-	// resume the paused run from persisted state (never from scratch)
+	// Trigger an immediate resume attempt; if this process loses the race to
+	// a worker, the worker's Resume claims the lease instead. Dispatch is
+	// backend-aware: the run's persisted backend decides which runner runs.
 	go func() {
 		bg := contextDetach()
-		if err := s.runner.Resume(bg, appr.RunID); err != nil {
-			s.log.Error("resume failed", observability.F{"run_id": appr.RunID, "error": err.Error()})
+		runner, berr := s.backendForRun(bg, appr.RunID)
+		if berr != nil {
+			s.log.Error("resume dispatch failed", observability.F{"run_id": appr.RunID, "error": berr.Error()})
+			return
+		}
+		if err := runner.Resume(bg, appr.RunID); err != nil {
+			s.log.Info("resume not taken by api; scheduler will pick it up",
+				observability.F{"run_id": appr.RunID, "reason": err.Error()})
 		}
 	}()
 	s.writeJSON(w, http.StatusOK, updated)
@@ -322,13 +335,32 @@ func (s *Server) runEvents(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no") // disable proxy buffering
+	flusher.Flush()
+
+	// Resume semantics: ?since=N wins; otherwise honor the standard
+	// Last-Event-ID header so EventSource reconnects replay correctly.
+	if since == 0 {
+		if lei := r.Header.Get("Last-Event-ID"); lei != "" {
+			if n := int64(queryIntRaw(lei)); n > 0 {
+				since = n
+			}
+		}
+	}
+
 	ticker := time.NewTicker(500 * time.Millisecond)
+	heartbeat := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
+	defer heartbeat.Stop()
 	idleDeadline := time.Now().Add(15 * time.Minute)
 	for {
 		select {
 		case <-r.Context().Done():
 			return
+		case <-heartbeat.C:
+			// comment frame keeps intermediaries from closing idle streams
+			fmt.Fprint(w, ": ping\n\n")
+			flusher.Flush()
 		case <-ticker.C:
 			events, err := s.runs.EventsSince(r.Context(), runID, since)
 			if err != nil {
@@ -353,6 +385,17 @@ func (s *Server) runEvents(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+}
+
+func queryIntRaw(s string) int {
+	n := 0
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return 0
+		}
+		n = n*10 + int(c-'0')
+	}
+	return n
 }
 
 func terminalStatus(status string) bool {

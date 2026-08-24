@@ -1,0 +1,33 @@
+# OPTIONAL external integrations for IncidentGraph. Nothing in this file is
+# required for development; every image must be supplied by the operator so we
+# never pretend a fake third-party service exists.
+#
+#   HERMES_IMAGE=<image> OPENCLAW_IMAGE=<image> DURABLEMCP_IMAGE=<image> \
+#     IG_OPENCLAW_VERIFY_TOKEN=<token> IG_MCP_TOKEN=<token> \
+#     docker compose -f docker-compose.yml -f docker/compose.integrations.yml up -d
+services:
+  durablemcp:
+    image: ${DURABLEMCP_IMAGE:?set DURABLEMCP_IMAGE to a real DurableMCP image}
+    ports:
+      - "8080:8080"
+
+  hermes:
+    image: ${HERMES_IMAGE:?set HERMES_IMAGE to a real Hermes agent image}
+    environment:
+      # Canonical authenticated MCP endpoint handed to the Hermes engine.
+      INCIDENTGRAPH_MCP_URL: http://mcp-server:8091/mcp
+      INCIDENTGRAPH_MCP_TOKEN: ${IG_MCP_TOKEN:?set IG_MCP_TOKEN}
+    ports:
+      - "8123:8123"
+    depends_on:
+      - mcp-server
+
+  openclaw:
+    image: ${OPENCLAW_IMAGE:?set OPENCLAW_IMAGE to a real OpenClaw gateway image}
+    environment:
+      INCIDENTGRAPH_API_URL: http://api:8090
+      IG_OPENCLAW_VERIFY_TOKEN: ${IG_OPENCLAW_VERIFY_TOKEN:?set IG_OPENCLAW_VERIFY_TOKEN}
+    ports:
+      - "8124:8124"
+    depends_on:
+      - api

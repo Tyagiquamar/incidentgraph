@@ -1,6 +1,7 @@
 package retrieval
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -44,9 +45,12 @@ func TestChunkLogsTemporal(t *testing.T) {
 
 func TestHashEmbedderDeterministicAndNormalized(t *testing.T) {
 	e := NewHashEmbedder(1536)
-	a := e.Embed("database connection pool exhausted after deployment")
-	b := e.Embed("database connection pool exhausted after deployment")
-	c := e.Embed("redis cache stampede causes thundering herd")
+	a, err := e.Embed(context.Background(), "database connection pool exhausted after deployment")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := e.Embed(context.Background(), "database connection pool exhausted after deployment")
+	c, _ := e.Embed(context.Background(), "redis cache stampede causes thundering herd")
 	for i := range a {
 		if a[i] != b[i] {
 			t.Fatal("embeddings must be deterministic")

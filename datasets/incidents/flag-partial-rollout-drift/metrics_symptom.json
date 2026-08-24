@@ -1,0 +1,18 @@
+{
+ "series": "flag_eval_divergence",
+ "points": [
+  {
+   "t": "11:00",
+   "v": 0
+  },
+  {
+   "t": "13:00",
+   "v": 7
+  },
+  {
+   "t": "17:00",
+   "v": 7
+  }
+ ],
+ "note": "flag evaluation differs across regions because one regional config watcher is stale; rollout percentage drifted by 6 points; users see inconsistent experience depending on edge region."
+}

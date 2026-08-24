@@ -20,13 +20,16 @@ import (
 	"github.com/incidentgraph/incidentgraph/internal/hermes"
 	"github.com/incidentgraph/incidentgraph/internal/observability"
 	"github.com/incidentgraph/incidentgraph/internal/openclaw"
-	"github.com/incidentgraph/incidentgraph/internal/runs"
 )
 
 var log = observability.New("api")
 
 func main() {
 	cfg := config.Load()
+	if err := cfg.Validate(); err != nil {
+		log.Error("invalid configuration; refusing to start", observability.F{"error": err.Error()})
+		os.Exit(1)
+	}
 	ctx := context.Background()
 
 	sys, err := bootstrap.Build(ctx, cfg)
@@ -47,11 +50,11 @@ func main() {
 
 	// Optional Hermes backend: selected explicitly per run via
 	// {"backend":"hermes"}; never silently substituted for the native engine.
-	var hermesRunner agent.Runner
+	backends := map[string]agent.Runner{"native-v1": sys.Native}
 	if cfg.HermesEnabled {
-		mcpURL := cfg.MCPPublicURL
-		hermesRunner = hermes.NewRunner(hermes.NewClient(cfg.HermesBaseURL), sys.Runs, mcpURL, sys.Tools.Names())
-		log.Info("hermes backend enabled", observability.F{"url": cfg.HermesBaseURL, "mcp": mcpURL})
+		backends["hermes"] = hermes.NewRunner(hermes.NewClient(cfg.HermesBaseURL), sys.Runs,
+			cfg.MCPPublicURL, cfg.MCPAuthToken, sys.Tools.Names())
+		log.Info("hermes backend enabled", observability.F{"url": cfg.HermesBaseURL, "mcp": cfg.MCPPublicURL})
 	}
 
 	srv := api.NewServer(api.ServerConfig{
@@ -62,7 +65,7 @@ func main() {
 			ViewerToken:   cfg.ViewerToken,
 		},
 		DurableURL: cfg.DurableMCPURL,
-		Hermes:     hermesRunner,
+		Backends:   backends,
 	}, sys.Pool, sys.Retrieval, sys.Memory, sys.Security, sys.Native)
 
 	if cfg.OpenClawIngressEnabled {
@@ -82,7 +85,7 @@ func main() {
 		}
 	}()
 
-	resumeActive(ctx, sys.Runs, sys.Native)
+	resumeActive(ctx, sys)
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
@@ -93,33 +96,31 @@ func main() {
 	log.Info("shutdown complete", observability.F{})
 }
 
-// resumeActive re-drives runs that a previous process left running. Runs are
-// claimed via lease (FOR UPDATE SKIP LOCKED) so this never steals a run that
-// a live worker is currently driving. needs_approval runs are NOT resumed
-// automatically: they wait for a human decision via
-// POST /approvals/{id}/approve|reject.
-func resumeActive(ctx context.Context, rs *runs.Store, runner agentRunner) {
+// resumeActive re-drives runnable runs left by a previous process. The runner
+// acquires its own fenced lease inside Resume (single ownership path); a live
+// worker that claimed the run first simply wins the race.
+// needs_approval runs are NOT resumed automatically: they wait for a human
+// decision via POST /approvals/{id}/approve|reject.
+func resumeActive(ctx context.Context, sys *bootstrap.System) {
 	for {
-		run, err := rs.ClaimNext(ctx, 10*time.Minute)
+		ids, err := sys.Runs.ClaimableRunIDs(ctx, 8)
 		if err != nil {
-			log.Warn("resume claim failed", observability.F{"error": err.Error()})
+			log.Warn("resume scan failed", observability.F{"error": err.Error()})
 			return
 		}
-		if run == nil {
+		if len(ids) == 0 {
 			return
 		}
-		go func(id string) {
-			bg := context.Background()
-			if err := runner.Resume(bg, id); err != nil {
-				log.Warn("resume failed", observability.F{"run_id": id, "error": err.Error()})
-			} else {
-				log.Info("resumed run after restart", observability.F{"run_id": id})
-			}
-			_ = rs.ReleaseLease(bg, id)
-		}(run.ID)
+		for _, id := range ids {
+			go func(runID string) {
+				bg := context.Background()
+				if err := sys.Native.Resume(bg, runID); err != nil {
+					log.Info("resume not taken", observability.F{"run_id": runID, "reason": err.Error()})
+				} else {
+					log.Info("resumed run after restart", observability.F{"run_id": runID})
+				}
+			}(id)
+		}
+		return
 	}
-}
-
-type agentRunner interface {
-	Resume(ctx context.Context, runID string) error
 }

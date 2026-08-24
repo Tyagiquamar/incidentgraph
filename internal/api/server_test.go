@@ -59,8 +59,7 @@ func newTestServer(t *testing.T, mutate func(*ServerConfig)) (*Server, *stubRunn
 		Auth: auth.Config{Enabled: true,
 			AdminToken: "t-admin", OperatorToken: "t-op", ViewerToken: "t-view"},
 	}
-	s := NewServer(cfg, pool, nil, nil, nil, nil)
-	s.runner = runner
+	s := NewServer(cfg, pool, nil, nil, nil, runner)
 	if mutate != nil {
 		mutate(&cfg)
 	}
@@ -132,7 +131,7 @@ func TestApprovalDecisionAttributesPrincipal(t *testing.T) {
 	inc := model.Incident{ID: model.New(), Title: "t-" + model.New()[:8], Service: "checkout"}
 	_ = s.runs.CreateIncident(ctx, inc)
 	runID := model.New()
-	_ = s.runs.CreateRun(ctx, model.AgentRun{ID: runID, IncidentID: inc.ID, Status: model.RunNeedsApproval})
+	_ = s.runs.CreateRun(ctx, model.AgentRun{ID: runID, IncidentID: inc.ID, AgentBackend: "native-v1", Status: model.RunNeedsApproval})
 	callID := model.New()
 	_ = s.runs.CreateToolCall(ctx, model.ToolCall{
 		ID: callID, RunID: runID, ToolName: "restart_service",

@@ -1,0 +1,1 @@
+commit ac13df24 consumer: dlq_topic removed from config # malformed payload loops forever

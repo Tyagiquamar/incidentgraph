@@ -1,0 +1,40 @@
+{
+  "incident": {
+    "slug": "log-flood-io",
+    "title": "Debug logging floods disk during peak",
+    "service": "notifications",
+    "severity": "sev3"
+  },
+  "files": [
+    {
+      "path": "logs/notifications/2026-08-23.log",
+      "source_type": "log",
+      "file": "service.log",
+      "trust": "tool_output"
+    },
+    {
+      "path": "metrics/notifications/log_write_mbps",
+      "source_type": "metrics",
+      "file": "metrics_symptom.json",
+      "trust": "tool_output"
+    },
+    {
+      "path": "metrics/notifications/p99_latency_ms",
+      "source_type": "metrics",
+      "file": "metrics_p99.json",
+      "trust": "tool_output"
+    },
+    {
+      "path": "deployments/notifications/ba11db33",
+      "source_type": "deployment",
+      "file": "deployment.txt",
+      "trust": "internal_document"
+    },
+    {
+      "path": "commits/notifications/ba11db33",
+      "source_type": "git_diff",
+      "file": "diff.txt",
+      "trust": "internal_document"
+    }
+  ]
+}

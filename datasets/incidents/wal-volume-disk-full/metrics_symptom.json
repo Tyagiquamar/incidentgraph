@@ -1,0 +1,18 @@
+{
+ "series": "pg_wal_volume_pct",
+ "points": [
+  {
+   "t": "04:00",
+   "v": 61
+  },
+  {
+   "t": "06:00",
+   "v": 93
+  },
+  {
+   "t": "06:40",
+   "v": 100
+  }
+ ],
+ "note": "WAL accumulation filled the pg_wal volume; checkpoints throttled writes while archiver lagged after a network interruption to the archive target; disk saturation on the wal partition stalled commits."
+}

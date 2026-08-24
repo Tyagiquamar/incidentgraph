@@ -1,0 +1,40 @@
+{
+  "incident": {
+    "slug": "idempotency-duplicate-charges",
+    "title": "Duplicate payment captures after client retry",
+    "service": "payments",
+    "severity": "sev1"
+  },
+  "files": [
+    {
+      "path": "logs/payments/2026-08-23.log",
+      "source_type": "log",
+      "file": "service.log",
+      "trust": "tool_output"
+    },
+    {
+      "path": "metrics/payments/duplicate_charge_rate",
+      "source_type": "metrics",
+      "file": "metrics_symptom.json",
+      "trust": "tool_output"
+    },
+    {
+      "path": "metrics/payments/p99_latency_ms",
+      "source_type": "metrics",
+      "file": "metrics_p99.json",
+      "trust": "tool_output"
+    },
+    {
+      "path": "deployments/payments/ca11ef12",
+      "source_type": "deployment",
+      "file": "deployment.txt",
+      "trust": "internal_document"
+    },
+    {
+      "path": "commits/payments/ca11ef12",
+      "source_type": "git_diff",
+      "file": "diff.txt",
+      "trust": "internal_document"
+    }
+  ]
+}

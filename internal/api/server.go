@@ -3,7 +3,9 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -28,24 +30,61 @@ type Server struct {
 	memory        *memory.Store
 	retrieval     *retrieval.Store
 	security      *security.Store
-	runner        agent.Runner // native engine
-	hermes        agent.Runner // optional hermes engine (nil unless configured)
+	backends      map[string]agent.Runner // backend registry: name -> runner
 	openclaw      *openclaw.Gateway
 	openclawToken string
 	durable       *durablemcp.Client
 	log           *observability.Logger
 }
 
+// RunnerRegistry resolves an agent backend name to its runner. Unknown or
+// unconfigured backends fail closed.
+type RunnerRegistry interface {
+	ForBackend(name string) (agent.Runner, bool)
+}
+
+func (s *Server) ForBackend(name string) (agent.Runner, bool) {
+	r, ok := s.backends[name]
+	return r, ok && r != nil
+}
+
+// backendForRun resolves the runner that owns a run by its persisted backend.
+func (s *Server) backendForRun(ctx context.Context, runID string) (agent.Runner, error) {
+	run, err := s.runs.GetRun(ctx, runID)
+	if err != nil {
+		return nil, fmt.Errorf("load run: %w", err)
+	}
+	r, ok := s.ForBackend(run.AgentBackend)
+	if !ok || r == nil {
+		return nil, fmt.Errorf("backend %q is not configured; refusing to dispatch run %s", run.AgentBackend, shortIDOf(run.ID))
+	}
+	return r, nil
+}
+
+func shortIDOf(id string) string {
+	if len(id) > 8 {
+		return id[:8]
+	}
+	return id
+}
+
 type ServerConfig struct {
-	Auth        auth.Config
-	MaxToolCall int
-	MaxSteps    int
-	DurableURL  string
-	Hermes      agent.Runner // optional backend; nil unless configured
+	Auth auth.Config
+	// Backends is the runner registry. "native-v1" must always be present;
+	// optional engines register themselves when enabled.
+	Backends   map[string]agent.Runner
+	DurableURL string
 }
 
 func NewServer(cfg ServerConfig, pool *pgxpool.Pool, ret *retrieval.Store,
 	mem *memory.Store, sec *security.Store, nativeRunner agent.Runner) *Server {
+	backends := cfg.Backends
+	if backends == nil {
+		backends = map[string]agent.Runner{}
+	}
+	if _, ok := backends["native-v1"]; !ok && nativeRunner != nil {
+		backends["native-v1"] = nativeRunner
+	}
 	s := &Server{
 		cfg: cfg, pool: pool,
 		runs:      runs.NewStore(pool),
@@ -53,11 +92,8 @@ func NewServer(cfg ServerConfig, pool *pgxpool.Pool, ret *retrieval.Store,
 		memory:    mem,
 		retrieval: ret,
 		security:  sec,
-		runner:    nativeRunner,
+		backends:  backends,
 		log:       observability.New("api"),
-	}
-	if cfg.Hermes != nil {
-		s.hermes = cfg.Hermes
 	}
 	if cfg.DurableURL != "" {
 		s.durable = durablemcp.New(cfg.DurableURL, "", 10*time.Second)

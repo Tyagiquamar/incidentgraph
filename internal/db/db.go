@@ -33,8 +33,28 @@ func Connect(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 }
 
 // Migrate applies all embedded migrations in lexical order exactly once.
+// A session-level advisory lock serializes concurrent binaries (api, worker,
+// mcp-server) that bootstrap at the same time — without it, two processes can
+// race CREATE EXTENSION / CREATE TABLE and fail startup spuriously.
 func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
-	if _, err := pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("acquire migration connection: %w", err)
+	}
+	defer conn.Release()
+
+	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock(hashtext('incidentgraph_schema_migrations'))`); err != nil {
+		return fmt.Errorf("advisory lock: %w", err)
+	}
+	defer func() {
+		_, _ = conn.Exec(context.WithoutCancel(ctx), `SELECT pg_advisory_unlock(hashtext('incidentgraph_schema_migrations'))`)
+	}()
+
+	return migrateLocked(ctx, conn)
+}
+
+func migrateLocked(ctx context.Context, conn *pgxpool.Conn) error {
+	if _, err := conn.Exec(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (
 		name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
 		return fmt.Errorf("ensure schema_migrations: %w", err)
 	}
@@ -47,7 +67,7 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 			continue
 		}
 		var exists bool
-		if err := pool.QueryRow(ctx,
+		if err := conn.QueryRow(ctx,
 			`SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE name=$1)`, name).Scan(&exists); err != nil {
 			return err
 		}
@@ -58,7 +78,7 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 		if err != nil {
 			return fmt.Errorf("read migration %s: %w", name, err)
 		}
-		tx, err := pool.Begin(ctx)
+		tx, err := conn.Begin(ctx)
 		if err != nil {
 			return err
 		}

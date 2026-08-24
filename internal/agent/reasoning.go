@@ -9,11 +9,12 @@ import (
 	"github.com/incidentgraph/incidentgraph/internal/evidence"
 	"github.com/incidentgraph/incidentgraph/internal/llm"
 	"github.com/incidentgraph/incidentgraph/internal/model"
+	"github.com/incidentgraph/incidentgraph/internal/runs"
 )
 
 // ---------------------------------------------------------------- hypothesis
 
-func (r *NativeRunner) phaseHypothesis(ctx context.Context, run *model.AgentRun) error {
+func (r *NativeRunner) phaseHypothesis(ctx context.Context, run *model.AgentRun, lease runs.Lease) error {
 	nodes, err := r.deps.Evidence.Nodes(ctx, run.ID)
 	if err != nil {
 		return err
@@ -34,6 +35,10 @@ func (r *NativeRunner) phaseHypothesis(ctx context.Context, run *model.AgentRun)
 	nodeIDs := map[string]bool{}
 	for _, n := range nodes {
 		nodeIDs[n.ID] = true
+		// Accept the short display form ("E-"+first8 of dashed-stripped id)
+		// used inside prompts, plus the raw id, when resolving references.
+		nodeIDs[shortIDOf(n)] = true
+		nodeIDs[strings.ReplaceAll(strings.ToLower(n.ID), "-", "")[:8]] = true
 	}
 	rank := 0
 	for _, hc := range set.Hypotheses {
@@ -58,7 +63,7 @@ func (r *NativeRunner) phaseHypothesis(ctx context.Context, run *model.AgentRun)
 		return err
 	}
 	r.emit(ctx, run.ID, "step_completed", map[string]any{"step": phaseHypothesis, "count": len(set.Hypotheses)})
-	return r.setPhase(ctx, run, phaseVerify)
+	return r.setPhase(ctx, lease, run, phaseVerify)
 }
 
 // linkEvidence resolves evidence-ID references into typed edges.
@@ -111,7 +116,7 @@ func shortIDOf(n model.EvidenceNode) string { return "E-" + strings.ReplaceAll(n
 
 // ---------------------------------------------------------------- verify
 
-func (r *NativeRunner) phaseVerify(ctx context.Context, run *model.AgentRun) error {
+func (r *NativeRunner) phaseVerify(ctx context.Context, run *model.AgentRun, lease runs.Lease) error {
 	hyps, err := r.deps.Evidence.Hypotheses(ctx, run.ID)
 	if err != nil {
 		return err
@@ -191,7 +196,7 @@ func (r *NativeRunner) phaseVerify(ctx context.Context, run *model.AgentRun) err
 		return err
 	}
 	r.emit(ctx, run.ID, "step_completed", map[string]any{"step": phaseVerify})
-	return r.setPhase(ctx, run, phaseSynthesize)
+	return r.setPhase(ctx, lease, run, phaseSynthesize)
 }
 
 // statementsMatch is a conservative containment check for claim matching.
@@ -261,7 +266,7 @@ func (r *NativeRunner) serviceName(ctx context.Context, run *model.AgentRun) str
 
 // ---------------------------------------------------------------- synthesize
 
-func (r *NativeRunner) phaseSynthesize(ctx context.Context, run *model.AgentRun) error {
+func (r *NativeRunner) phaseSynthesize(ctx context.Context, run *model.AgentRun, lease runs.Lease) error {
 	hyps, err := r.deps.Evidence.Hypotheses(ctx, run.ID)
 	if err != nil {
 		return err
@@ -309,7 +314,7 @@ func (r *NativeRunner) phaseSynthesize(ctx context.Context, run *model.AgentRun)
 	r.emit(ctx, run.ID, "report_ready", map[string]any{
 		"root_cause": report.RootCause, "confidence": report.Confidence,
 		"supporting_evidence": len(report.SupportingEvidence)})
-	return r.setPhase(ctx, run, phaseComplete)
+	return r.setPhase(ctx, lease, run, phaseComplete)
 }
 
 func filterCitations(citations []string, valid map[string]string) []string {

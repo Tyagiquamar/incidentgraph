@@ -1,0 +1,1 @@
+commit c1d2e3f4 terraform: dns_ttl = 86400 # stale record pinned retired primary IP

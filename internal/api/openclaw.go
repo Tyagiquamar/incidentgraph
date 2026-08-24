@@ -79,11 +79,9 @@ func (s *Server) openclawWebhook(w http.ResponseWriter, r *http.Request) {
 		}
 		go func() {
 			bg := contextDetach()
-			if claimed, _ := s.runs.ClaimRun(bg, run.ID, 10*time.Minute); claimed {
-				defer func() { _ = s.runs.ReleaseLease(bg, run.ID) }()
-				_ = s.runner.Start(bg, run.ID)
-				statusURL := ""
-				_ = statusURL
+			// runner self-claims its fenced lease (single ownership path)
+			if runner, ok := s.ForBackend(run.AgentBackend); ok {
+				_ = runner.Start(bg, run.ID)
 			}
 		}()
 		s.writeJSON(w, http.StatusOK, map[string]any{
@@ -103,29 +101,38 @@ func (s *Server) openclawWebhook(w http.ResponseWriter, r *http.Request) {
 			status = "approved"
 		}
 		decidedBy := "openclaw:" + cmd.Principal.UserID
-		if err := s.runs.DecideApproval(ctx, id, status, decidedBy); err != nil {
-			s.err(w, http.StatusInternalServerError, err.Error())
+		updated, txErr := s.runs.DecideApprovalTx(ctx, id, status, decidedBy)
+		if txErr != nil {
+			s.err(w, http.StatusConflict, txErr.Error())
 			return
 		}
-		if appr.ToolCallID != nil {
-			if status == "approved" {
-				_ = s.runs.UpdateToolCallPolicy(ctx, *appr.ToolCallID, "allowed", "approved")
-			} else {
-				_ = s.runs.CompleteToolCall(ctx, *appr.ToolCallID, "denied", "", 0, "rejected via "+decidedBy)
-			}
-		}
+		s.writeJSON(w, http.StatusOK, map[string]any{
+			"reply":  "Approval " + status + " by " + decidedBy,
+			"run_id": appr.RunID,
+		})
+		_ = updated
+
+		// Backend-aware resume dispatch; if this process loses the race to a
+		// worker, the worker's fenced Resume claims the run instead.
 		go func() {
 			bg := contextDetach()
-			_ = s.runner.Resume(bg, appr.RunID)
+			runner, berr := s.backendForRun(bg, appr.RunID)
+			if berr == nil {
+				_ = runner.Resume(bg, appr.RunID)
+			}
 		}()
-		s.writeJSON(w, http.StatusOK, map[string]any{"reply": "Approval " + status + " by " + decidedBy})
 
 	case "cancel":
 		if cmd.Argument == "" {
 			s.err(w, http.StatusBadRequest, "cancel requires a run id")
 			return
 		}
-		if err := s.runner.Cancel(ctx, cmd.Argument); err != nil {
+		runner, berr := s.backendForRun(ctx, cmd.Argument)
+		if berr != nil {
+			s.err(w, http.StatusBadRequest, berr.Error())
+			return
+		}
+		if err := runner.Cancel(ctx, cmd.Argument); err != nil {
 			s.err(w, http.StatusInternalServerError, err.Error())
 			return
 		}

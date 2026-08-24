@@ -55,6 +55,9 @@ type GenResponse struct {
 	Provider     string
 	FinishReason string
 	Retries      int
+	// UsageIsEstimate marks providers whose token counts are self-estimated
+	// (e.g. the deterministic mock) rather than measured by a real API.
+	UsageIsEstimate bool
 }
 
 // Provider is a model backend.
@@ -74,11 +77,27 @@ type UsageRecord struct {
 	TaskType     TaskType
 	InputTokens  int
 	OutputTokens int
-	LatencyMS    int64
-	CostCents    float64
-	Status       string // ok|error|timeout
-	RetryCount   int
-	Error        string
+	// UsageSource records whether the counts came from the PROVIDER response
+	// ("provider", authoritative) or were ESTIMATED from text length
+	// ("estimated"). Estimates are honest approximations, never presented as
+	// measured usage.
+	UsageSource string
+	LatencyMS   int64
+	CostCents   float64
+	// CostKnown is false when the model is absent from the price table: cost
+	// stays 0 but is explicitly flagged as unknown rather than "free".
+	CostKnown  bool
+	Status     string // ok|error|timeout
+	RetryCount int
+	Error      string
+}
+
+// KnownModel reports whether built-in pricing covers this model. Built-in
+// prices are ESTIMATES documented in llm.go; unknown models are surfaced so
+// dashboards never show fabricated $0 as real cost.
+func KnownModel(model string) bool {
+	_, ok := priceTable[model]
+	return ok
 }
 
 // ---------------------------------------------------------------- pricing
@@ -180,23 +199,37 @@ func modelOf(req GenRequest) string {
 }
 
 func (r *Router) record(resp *GenResponse, req GenRequest, errStr string) {
-	in := estimateTokens(req.System + concatMessages(req.Messages))
-	out := 0
 	model := ""
 	provider := ""
+	out := 0
+	in := 0
+	usageSource := "estimated"
 	if resp != nil {
 		out = resp.OutputTokens
 		model = resp.Model
 		provider = resp.Provider
+		if resp.InputTokens > 0 || resp.OutputTokens > 0 {
+			// Provider-reported usage wins over any estimate.
+			in = resp.InputTokens
+			usageSource = "provider"
+			if resp.UsageIsEstimate {
+				usageSource = "estimated"
+			}
+		} else {
+			in = estimateTokens(req.System + concatMessages(req.Messages))
+		}
 	} else {
+		in = estimateTokens(req.System + concatMessages(req.Messages))
 		model = modelOf(req)
 	}
+	cost := EstimateCost(model, in, out)
 	r.rec(UsageRecord{
 		RunID:    req.RunID,
 		Provider: providerName(provider, r), Model: model, TaskType: req.Task,
 		InputTokens: in, OutputTokens: out,
-		CostCents: EstimateCost(model, in, out),
-		Status:    statusFor(errStr), RetryCount: retryOf(resp), Error: errStr,
+		UsageSource: usageSource,
+		CostCents:   cost, CostKnown: KnownModel(model),
+		Status: statusFor(errStr), RetryCount: retryOf(resp), Error: errStr,
 	})
 }
 

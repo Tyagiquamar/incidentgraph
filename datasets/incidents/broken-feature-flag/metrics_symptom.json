@@ -1,0 +1,18 @@
+{
+ "series": "checkout_error_rate",
+ "points": [
+  {
+   "t": "09:00",
+   "v": 0.2
+  },
+  {
+   "t": "10:00",
+   "v": 9.8
+  },
+  {
+   "t": "11:00",
+   "v": 0.3
+  }
+ ],
+ "note": "error rate correlates exactly with the flag cohort: feature flag enabled a defective code path for rollout percentage 10; rollback of the flag fixed errors immediately."
+}

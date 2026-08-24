@@ -34,6 +34,7 @@ func NewMock(model string) *MockProvider {
 func (m *MockProvider) Name() string { return "mock" }
 
 var taskRe = regexp.MustCompile(`(?m)^TASK:\s*(\w+)`)
+var incidentServiceRe = regexp.MustCompile(`\[([A-Za-z0-9_-]+)/[a-z0-9]+\]`)
 var evidenceHeaderRe = regexp.MustCompile(`^-\s*\[([A-Za-z]+-[A-Za-z0-9]+)\]\s*type=(\w+)\s+source=(\S*)\s+trust=(\w+)\s*$`)
 
 type evItem struct {
@@ -102,6 +103,7 @@ func (m *MockProvider) Generate(ctx context.Context, req GenRequest) (*GenRespon
 		Text: out, InputTokens: inTok, OutputTokens: outTok,
 		LatencyMS: int64(timeSince(start).Milliseconds()),
 		Model:     m.Model, Provider: m.Name(), FinishReason: "stop",
+		UsageIsEstimate: true, // mock counts are honest estimates, not measurements
 	}, nil
 }
 
@@ -118,13 +120,15 @@ var signatures = []struct {
 		[]string{"pool_size", "pool exhausted", "connection pool", "acquire timeout", "db wait"}},
 	{"n_plus_one_query",
 		"N+1 query pattern: per-item SELECTs multiplied endpoint latency with item count.",
-		[]string{"n+1", "repeated select", "select ... from order_items", "queries per item", "1 query per"}},
+		[]string{"n+1", "repeated select", "select ... from order_items", "queries per item", "1 query per",
+			"sequential scan", "cartesian join", "missing index"}},
 	{"cache_stampede",
 		"Cache expiration synchronized across keys causing a stampede on the backing store.",
 		[]string{"cache miss", "stampede", "thundering herd", "ttl expired", "redis evict"}},
 	{"downstream_timeout",
 		"A downstream dependency's increased latency propagated timeouts upstream.",
-		[]string{"upstream timeout", "downstream latency", "context deadline", "circuit open"}},
+		[]string{"upstream timeout", "downstream latency", "context deadline", "circuit open",
+			"half-open probe", "worker threads blocked"}},
 	{"bad_deploy_config",
 		"A configuration regression introduced by the deployment caused the incident.",
 		[]string{"config changed", "env var changed", "misconfigured", "feature flag flipped", "worker_count"}},
@@ -133,10 +137,11 @@ var signatures = []struct {
 		[]string{"leak", "connections not closed", "defer close missing", "idle in transaction"}},
 	{"queue_backlog",
 		"Consumer throughput fell below producer rate creating an unbounded queue backlog.",
-		[]string{"backlog", "lag", "consumer group", "unacked"}},
+		[]string{"backlog growing unbounded", "consumer throughput fell", "consumer group lag",
+			"unbounded queue backlog", "redelivery loop", "dlq policy missing"}},
 	{"disk_saturation",
 		"Disk utilization saturated causing IO wait spikes across services.",
-		[]string{"disk usage", "iowait", "inode", "partition full"}},
+		[]string{"disk usage", "iowait", "partition full", "wal volume", "archive lag", "pg_wal", "log flood"}},
 	{"rate_limit",
 		"A third-party rate limit was hit after traffic growth.",
 		[]string{"429", "rate limit", "quota exceeded"}},
@@ -148,14 +153,28 @@ var signatures = []struct {
 		[]string{"nxdomain", "dns", "resolution failed", "stale record"}},
 	{"expired_secret",
 		"An expired credential/secret caused authentication failures.",
-		[]string{"token expired", "secret expired", "401 unauthorized", "credential expired"}},
+		[]string{"token expired", "secret expired", "401 unauthorized", "credential expired",
+			"certificate has expired", "x509"}},
 	{"broken_feature_flag",
 		"A feature flag rollout enabled a defective code path.",
 		[]string{"feature flag", "flag enabled", "rollout percentage"}},
 	{"retry_policy",
 		"Aggressive retries amplified load (retry storm).",
-		[]string{"retry storm", "retries exceeded", "max retry", "backoff disabled"}},
+		[]string{"retry storm", "retries exceeded", "max retry", "backoff disabled",
+			"without an idempotency key", "duplicate charges"}},
+	{"memory_leak",
+		"A memory leak (unbounded retention) exhausted the memory limit and triggered restarts.",
+		[]string{"oomkill", "heap profile shows growing", "memory grows steadily", "leak introduced",
+			"growing cache without eviction"}},
+	{"schema_drift",
+		"Schema drift between primary and replica broke reads relying on replicated schema.",
+		[]string{"schema drift", "unknown column", "replication conflict"}},
+	{"thread_pool_exhaustion",
+		"Bounded worker pool starved on blocked calls without timeouts.",
+		[]string{"thread pool exhausted", "queue rejection rate climbed", "starving other requests"}},
 }
+
+var _ = signatures // referenced by matchSignatures
 
 func matchSignatures(text string) []int {
 	lower := strings.ToLower(text)
@@ -235,11 +254,50 @@ func mockPlan(prompt string) string {
 	return string(b)
 }
 
+// serviceOfPrompt extracts the incident's service token from the
+// "INCIDENT #id [service/severity]" header used by the native runner.
+func serviceOfPrompt(prompt string) string {
+	if m := incidentServiceRe.FindStringSubmatch(prompt); m != nil {
+		return strings.ToLower(m[1])
+	}
+	return ""
+}
+
+// sameServiceEvidence reports whether an evidence item belongs to the given
+// service (paths look like logs/<service>/... or deployments/<service>/<hash>).
+// Unknown-source items count only when no service scope is known.
+func sameServiceEvidence(source, service string) bool {
+	if source == "" {
+		return service == ""
+	}
+	if service == "" {
+		return true
+	}
+	return strings.Contains(strings.ToLower(source), "/"+service+"/") ||
+		strings.HasPrefix(strings.ToLower(source), "/"+service+"/")
+}
+
 func mockHypotheses(prompt string) string {
 	evidence := parseEvidence(prompt)
 	allText := prompt
 	for _, e := range evidence {
 		allText += "\n" + e.Body
+	}
+	svc := serviceOfPrompt(prompt)
+	// Scope guard: if the incident's service is known but NONE of the
+	// evidence belongs to it, the corpus cannot corroborate anything about
+	// this incident — honest abstention beats cross-service guesswork.
+	if svc != "" {
+		inScope := false
+		for _, e := range evidence {
+			if sameServiceEvidence(e.Source, svc) {
+				inScope = true
+				break
+			}
+		}
+		if !inScope {
+			return `{"hypotheses":[{"claim":"Root cause cannot be established with current evidence.","supporting_evidence_ids":[],"contradicting_evidence_ids":[],"confidence":0.2,"root_cause_category":"insufficient_evidence"}]}`
+		}
 	}
 	hits := matchSignatures(allText)
 	if len(hits) == 0 {
@@ -260,38 +318,43 @@ func mockHypotheses(prompt string) string {
 		}
 		sig := signatures[hi]
 		stmt := strings.ReplaceAll(sig.statement, "%COMMIT%", findCommit(prompt))
-		lowerStmt := strings.ToLower(sig.category + " " + strings.Join(sig.keywords, " "))
-		var support, contra []string
+		kwHits := map[string][]string{} // distinct keyword -> item IDs carrying it
+		var contra []string
 		for _, e := range evidence {
+			if !sameServiceEvidence(e.Source, svc) {
+				contra = append(contra, e.ID) // out-of-service signal weakens
+				continue
+			}
 			body := strings.ToLower(e.Body)
-			scored := false
+			if strings.Contains(body, "remained stable") || strings.Contains(body, "no anomalies") {
+				contra = append(contra, e.ID)
+				continue
+			}
 			for _, kw := range sig.keywords {
 				if strings.Contains(body, kw) {
-					scored = true
-					break
+					kwHits[kw] = append(kwHits[kw], e.ID)
+					break // an item contributes to ONE keyword family
 				}
 			}
-			if scored && !strings.Contains(body, "remained stable") && !strings.Contains(body, "no anomalies") {
-				support = append(support, e.ID)
-				continue
-			}
-			// evidence that is about a different subsystem supports ranking alternatives
-			if containsAny(lowerStmt, []string{"redis"}) && strings.Contains(body, "redis") ||
-				containsAny(lowerStmt, []string{"cache"}) && strings.Contains(body, "redis") {
-				support = append(support, e.ID)
-				continue
-			}
-			if strings.Contains(body, "stable") || strings.Contains(body, "normal") {
-				contra = append(contra, e.ID)
+		}
+		var support []string
+		seen := map[string]bool{}
+		for _, ids := range kwHits {
+			for _, id := range ids {
+				if !seen[id] {
+					seen[id] = true
+					support = append(support, id)
+				}
 			}
 		}
-		// corroboration rule: a single weakly-matching chunk is not enough to
-		// assert a root cause. Without at least two supporting items the honest
-		// answer is explicit abstention (spec: insufficient-evidence scenario).
+		// Corroboration rule: at least TWO independent same-service evidence
+		// items must match the signature before a root cause is asserted.
+		// Distinct keyword families add confidence; a single generic token
+		// match never establishes causality on its own.
 		if len(support) < 2 {
 			continue
 		}
-		conf := 0.35 + 0.15*float64(len(support)) - 0.1*float64(len(contra))
+		conf := 0.30 + 0.08*float64(len(support)) + 0.07*float64(len(kwHits)) - 0.05*float64(len(contra))
 		if conf > 0.95 {
 			conf = 0.95
 		}

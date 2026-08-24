@@ -1,0 +1,18 @@
+{
+ "series": "replica_lag_seconds",
+ "points": [
+  {
+   "t": "09:00",
+   "v": 2
+  },
+  {
+   "t": "10:00",
+   "v": 180
+  },
+  {
+   "t": "12:00",
+   "v": 0
+  }
+ ],
+ "note": "reader replica has schema drift: column added on primary missing on lagging replica; replication SQL conflict halts replay and reads hitting the stale replica fail with unknown column errors."
+}

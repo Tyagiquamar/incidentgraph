@@ -1,0 +1,18 @@
+{
+ "series": "redelivery_loop_count",
+ "points": [
+  {
+   "t": "08:00",
+   "v": 0
+  },
+  {
+   "t": "09:00",
+   "v": 1400
+  },
+  {
+   "t": "11:00",
+   "v": 5200
+  }
+ ],
+ "note": "one malformed payload acts as poison pill: consumer crashes and redelivers the same message forever because DLQ policy missing, so redelivery loops consume the whole consumer group budget (backlog rising)."
+}

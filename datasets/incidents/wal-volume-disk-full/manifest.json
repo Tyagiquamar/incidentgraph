@@ -1,0 +1,40 @@
+{
+  "incident": {
+    "slug": "wal-volume-disk-full",
+    "title": "Writes stall on orders primary",
+    "service": "orders",
+    "severity": "sev1"
+  },
+  "files": [
+    {
+      "path": "logs/orders/2026-08-23.log",
+      "source_type": "log",
+      "file": "service.log",
+      "trust": "tool_output"
+    },
+    {
+      "path": "metrics/orders/pg_wal_volume_pct",
+      "source_type": "metrics",
+      "file": "metrics_symptom.json",
+      "trust": "tool_output"
+    },
+    {
+      "path": "metrics/orders/p99_latency_ms",
+      "source_type": "metrics",
+      "file": "metrics_p99.json",
+      "trust": "tool_output"
+    },
+    {
+      "path": "deployments/orders/aa77ee31",
+      "source_type": "deployment",
+      "file": "deployment.txt",
+      "trust": "internal_document"
+    },
+    {
+      "path": "commits/orders/aa77ee31",
+      "source_type": "git_diff",
+      "file": "diff.txt",
+      "trust": "internal_document"
+    }
+  ]
+}

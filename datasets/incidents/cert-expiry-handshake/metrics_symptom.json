@@ -1,0 +1,18 @@
+{
+ "series": "tls_handshake_failures",
+ "points": [
+  {
+   "t": "23:45",
+   "v": 0
+  },
+  {
+   "t": "00:05",
+   "v": 55
+  },
+  {
+   "t": "01:00",
+   "v": 52
+  }
+ ],
+ "note": "x509 certificate has expired errors between checkout and inventory; TLS handshake failures began exactly at midnight when the leaf certificate validity ended; rotation job had failed silently last week."
+}

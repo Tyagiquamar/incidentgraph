@@ -36,11 +36,13 @@ func NewClient(baseURL string) *Client {
 // StartRequest asks Hermes to begin processing an existing IncidentGraph run;
 // the run row already exists so Postgres remains the source of truth.
 type StartRequest struct {
-	RunID      string   `json:"run_id"`
-	IncidentID string   `json:"incident_id"`
-	Task       string   `json:"task"`
-	MCPServer  string   `json:"mcp_server"` // URL of incidentgraph-mcp
-	Tools      []string `json:"tools"`      // explicit allowlist
+	RunID     string `json:"run_id"`
+	Task      string `json:"task"`
+	MCPServer string `json:"mcp_server"` // URL of incidentgraph-mcp
+	// MCPAuthToken is handed out-of-band so Hermes can authenticate against
+	// incidentgraph-mcp. Never logged; documented integration contract.
+	MCPAuthToken string   `json:"mcp_auth_token,omitempty"`
+	Tools        []string `json:"tools"` // explicit allowlist
 }
 
 type StartResponse struct {

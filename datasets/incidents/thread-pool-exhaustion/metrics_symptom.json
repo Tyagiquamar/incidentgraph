@@ -1,0 +1,18 @@
+{
+ "series": "thread_pool_active_pct",
+ "points": [
+  {
+   "t": "16:00",
+   "v": 55
+  },
+  {
+   "t": "17:30",
+   "v": 97
+  },
+  {
+   "t": "18:00",
+   "v": 100
+  }
+ ],
+ "note": "thread pool exhausted during flash sale: queue rejection rate climbed as worker threads blocked on slow external call without timeout, starving other requests."
+}

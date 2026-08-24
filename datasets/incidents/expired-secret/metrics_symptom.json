@@ -1,0 +1,18 @@
+{
+ "series": "auth_401_rate",
+ "points": [
+  {
+   "t": "01:50",
+   "v": 1
+  },
+  {
+   "t": "02:05",
+   "v": 38
+  },
+  {
+   "t": "03:00",
+   "v": 2
+  }
+ ],
+ "note": "401 unauthorized surge began right after the provider credential secret expired at midnight per rotation policy notice; token expired signature on every attempt until rotation completed."
+}

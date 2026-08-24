@@ -1,0 +1,1 @@
+commit cb77aa21 breaker.half_open_max_probes = 20 # faster recovery than provider supports

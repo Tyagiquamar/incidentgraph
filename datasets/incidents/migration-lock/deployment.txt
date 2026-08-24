@@ -1,0 +1,1 @@
+deployment service=orders commit dd88ff22 migration runner change allowed DDL inside app transaction

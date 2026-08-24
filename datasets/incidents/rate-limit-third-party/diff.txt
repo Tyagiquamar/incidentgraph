@@ -1,0 +1,1 @@
+commit 5e6f7a8b PROVIDER_TIER=standard # request volume doubled, quota unchanged -> 429 under load

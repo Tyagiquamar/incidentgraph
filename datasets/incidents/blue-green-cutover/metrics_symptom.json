@@ -1,0 +1,18 @@
+{
+ "series": "connection_reset_rate",
+ "points": [
+  {
+   "t": "22:50",
+   "v": 0
+  },
+  {
+   "t": "23:00",
+   "v": 340
+  },
+  {
+   "t": "23:10",
+   "v": 12
+  }
+ ],
+ "note": "blue-green cutover drained the old pool too fast: drain seconds misconfigured far below keep-alive lifetime produced connection reset storms at the load balancer during the switch window."
+}

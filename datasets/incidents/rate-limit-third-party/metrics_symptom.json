@@ -1,0 +1,18 @@
+{
+ "series": "address_provider_429_rate",
+ "points": [
+  {
+   "t": "12:00",
+   "v": 2
+  },
+  {
+   "t": "14:00",
+   "v": 18
+  },
+  {
+   "t": "16:00",
+   "v": 41
+  }
+ ],
+ "note": "third-party address provider returned 429 quota exceeded responses at 40/min after traffic growth; rate limit budget exhausted before daily reset."
+}

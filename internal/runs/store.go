@@ -5,10 +5,8 @@ package runs
 import (
 	"context"
 	"encoding/json"
-	"time"
 
 	"github.com/incidentgraph/incidentgraph/internal/model"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -150,71 +148,64 @@ func (s *Store) ActiveRuns(ctx context.Context) ([]model.AgentRun, error) {
 	return out, rows.Err()
 }
 
-// terminalStatuses are the run states that must never be overwritten by a
-// late finish/cancel from a stale driver.
-var terminalStatuses = []string{model.RunComplete, model.RunFailed, model.RunCancelled}
-
+// SetPhase advances current_phase without a fence (non-driving callers).
+// Drivers must use SetPhaseFenced.
 func (s *Store) SetPhase(ctx context.Context, runID, phase string) error {
 	_, err := s.pool.Exec(ctx, `UPDATE agent_runs SET current_phase=$2 WHERE id=$1`, runID, phase)
 	return err
 }
 
-// FinishRun moves a run to a terminal (or needs_approval) state. It is a no-op
-// for runs already terminal, so late writes from stale drivers or cancelled
-// runs cannot corrupt the persisted outcome.
-func (s *Store) FinishRun(ctx context.Context, runID, status, terminationReason, errMsg string) error {
-	_, err := s.pool.Exec(ctx, `UPDATE agent_runs SET status=$2, termination_reason=$3, error=$4, completed_at=now(),
-	    latency_ms = GREATEST(0, EXTRACT(EPOCH FROM (now()-started_at))*1000)::bigint
-	    WHERE id=$1 AND status <> ALL($5::text[])`,
-		runID, status, terminationReason, errMsg, terminalStatuses)
+// ClaimableRunIDs returns runnable runs with no valid lease (crashed drivers,
+// freshly approved resumes). Drivers claim them through ClaimRun/Resume.
+func (s *Store) ClaimableRunIDs(ctx context.Context, limit int) ([]string, error) {
+	rows, err := s.pool.Query(ctx, `SELECT id FROM agent_runs
+	    WHERE status=$1 AND (lease_expires_at IS NULL OR lease_expires_at < now())
+	    ORDER BY started_at LIMIT $2`, model.RunRunning, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
+// SetExternalSession persists the external engine session identity
+// (e.g. Hermes session id) on the run row.
+func (s *Store) SetExternalSession(ctx context.Context, runID, backend, sessionID string) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE agent_runs SET external_backend=$2, external_session_id=$3 WHERE id=$1`,
+		runID, backend, sessionID)
 	return err
 }
 
-// ClaimNext atomically leases one runnable run so concurrent api/worker
-// processes never drive the same run. Uses FOR UPDATE SKIP LOCKED; expired
-// leases (crashed drivers) become claimable again.
-func (s *Store) ClaimNext(ctx context.Context, lease time.Duration) (*model.AgentRun, error) {
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback(ctx)
-	run, err := scanRun(tx.QueryRow(ctx, `SELECT `+runCols+` FROM agent_runs
-	    WHERE status=$1 AND (lease_expires_at IS NULL OR lease_expires_at < now())
-	    ORDER BY started_at LIMIT 1 FOR UPDATE SKIP LOCKED`, model.RunRunning))
-	if err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, nil
-		}
-		return nil, err
-	}
-	if _, err := tx.Exec(ctx,
-		`UPDATE agent_runs SET lease_expires_at = now() + make_interval(secs => $1) WHERE id=$2`,
-		int(lease.Seconds()), run.ID); err != nil {
-		return nil, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return nil, err
-	}
-	return &run, nil
+// ExternalSession returns the persisted external session for the run, if any.
+func (s *Store) ExternalSession(ctx context.Context, runID string) (backend, sessionID string, err error) {
+	err = s.pool.QueryRow(ctx,
+		`SELECT COALESCE(external_backend,''), COALESCE(external_session_id,'') FROM agent_runs WHERE id=$1`,
+		runID).Scan(&backend, &sessionID)
+	return
 }
 
-// ClaimRun leases one specific run (used by the API before async driving).
-// Returns false when another driver currently holds a valid lease.
-func (s *Store) ClaimRun(ctx context.Context, runID string, lease time.Duration) (bool, error) {
-	tag, err := s.pool.Exec(ctx,
-		`UPDATE agent_runs SET lease_expires_at = now() + make_interval(secs => $1)
-	     WHERE id=$2 AND status=$3 AND (lease_expires_at IS NULL OR lease_expires_at < now())`,
-		int(lease.Seconds()), runID, model.RunRunning)
-	if err != nil {
-		return false, err
-	}
-	return tag.RowsAffected() > 0, nil
-}
+// late finish/cancel from a stale driver.
+var terminalStatuses = []string{model.RunComplete, model.RunFailed, model.RunCancelled}
 
-// ReleaseLease clears the lease after driving completes (success or failure).
-func (s *Store) ReleaseLease(ctx context.Context, runID string) error {
-	_, err := s.pool.Exec(ctx, `UPDATE agent_runs SET lease_expires_at = NULL WHERE id=$1`, runID)
+// FinishRun records an UNCONDITIONAL guarded terminal transition. It is the
+// operator path (Cancel) and recovery path: it intentionally bypasses leases
+// because human/operator authority supersedes them, but it can never overwrite
+// an already-terminal outcome. Drivers must use FinishRunFenced.
+func (s *Store) FinishRun(ctx context.Context, runID, status, terminationReason, errMsg string) error {
+	_, err := s.pool.Exec(ctx, `UPDATE agent_runs SET status=$2, termination_reason=$3, error=$4,
+	    completed_at=COALESCE(completed_at, CASE WHEN $2 IN ('complete','failed','cancelled') THEN now() ELSE completed_at END),
+	    latency_ms = GREATEST(0, EXTRACT(EPOCH FROM (now()-started_at))*1000)::bigint
+	    WHERE id=$1 AND status <> ALL($5::text[])`,
+		runID, status, terminationReason, errMsg, terminalStatuses)
 	return err
 }
 
